@@ -1,0 +1,49 @@
+# Python
+venv/
+.env
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Node
+node_modules/
+dist/
+build/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# VSCode
+.vscode/
+
+# Logs
+*.log
+
+# Misc
+*.swp
+*.swo
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Coverage
+htmlcov/
+.coverage
+coverage.xml
+
+# Test
+.tox/
+
+# Others
+*.bak
+*.tmp
+
+# Ignore frontend build artifacts
+Frontend/dist/
+Frontend/build/
+
+# Ignore backend build artifacts
+Backend/dist/
+Backend/build/
