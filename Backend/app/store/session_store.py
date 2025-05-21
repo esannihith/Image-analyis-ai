@@ -108,3 +108,13 @@ class SessionStore:
             return self._deserialize(data)
         except Exception as e:
             raise RuntimeError(f"Failed to get session field: {e}")
+
+    def touch_session(self, session_id: str) -> None:
+        """
+        Refresh the TTL for a session key in Redis.
+        """
+        key = self._session_key(session_id)
+        try:
+            self.client.expire(key, self.session_ttl)
+        except Exception as e:
+            raise RuntimeError(f"Failed to refresh session TTL: {e}")

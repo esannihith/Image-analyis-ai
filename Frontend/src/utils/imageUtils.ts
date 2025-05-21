@@ -32,6 +32,28 @@ export const formatFileSize = (sizeInBytes: number): string => {
 };
 
 /**
+ * Checks if an image URL is valid
+ */
+export const checkImageUrl = async (url: string): Promise<boolean> => {
+  if (!url) return false;
+  
+  try {
+    // If it's a data URL or object URL, it's valid
+    if (url.startsWith('data:') || url.startsWith('blob:')) {
+      return true;
+    }
+    
+    // For network URLs, try to fetch the headers
+    const response = await fetch(url, { method: 'HEAD', cache: 'no-store' });
+    const contentType = response.headers.get('content-type');
+    return response.ok && contentType !== null && contentType.startsWith('image/');
+  } catch (error) {
+    console.error(`Error checking image URL (${url}):`, error);
+    return false;
+  }
+};
+
+/**
  * Extracts a filename without its extension
  */
 export const getFilenameWithoutExtension = (filename: string): string => {

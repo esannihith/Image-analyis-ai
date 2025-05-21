@@ -1,4 +1,4 @@
-from image_metadata_conversational_assistant.store.session_store import SessionStore
+from app.store.session_store import SessionStore
 import imagehash
 from PIL import Image
 import json

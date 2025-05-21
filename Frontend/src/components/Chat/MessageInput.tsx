@@ -9,7 +9,7 @@ const MessageInput: React.FC = () => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textAreaRef = useRef<HTMLTextAreaElement>(null);
-  const { sendMessage, uploadImage, isTyping, uploadProgress } = useChat();
+  const { sendMessage, uploadImage, isTyping, uploadProgress, messages } = useChat();
 
   // Auto-resize text area based on content
   useEffect(() => {
@@ -30,6 +30,8 @@ const MessageInput: React.FC = () => {
     
     if (isTyping) return;
     
+    let imageId: string | undefined = undefined;
+
     // If there's an image to upload, upload it first
     if (selectedFile) {
       try {
@@ -42,16 +44,22 @@ const MessageInput: React.FC = () => {
           fileInputRef.current.value = '';
         }
         
-        await uploadImage(fileToUpload);
+        imageId = await uploadImage(fileToUpload);
       } catch (error) {
         console.error('Failed to upload image:', error);
         return;
       }
+    } else {
+      // If no image is being uploaded, try to find the last imageId in chat
+      const lastImageMsg = [...messages].reverse().find(msg => msg.image && msg.image.id && msg.image.id !== 'temp');
+      if (lastImageMsg && lastImageMsg.image) {
+        imageId = lastImageMsg.image.id;
+      }
     }
     
-    // If there's text to send, send it
+    // If there's text to send, send it (with imageId)
     if (input.trim()) {
-      sendMessage(input);
+      sendMessage(input, imageId);
       setInput('');
     }
   };

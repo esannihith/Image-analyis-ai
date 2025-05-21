@@ -4,6 +4,11 @@ from pydantic import BaseModel, Field
 import requests
 import json
 
+"""
+Named place enrichment tool for CrewAI. Fetches a concise summary or Wikipedia snippet about a named place/location.
+Returns output matching the standardized schema: {"enrichment_text": <str>, "source_url": <str>, "success": <bool>, "error": <str|null>}.
+"""
+
 class NamedPlaceEnrichmentInput(BaseModel):
     location: str = Field(..., description="Human-friendly location name (e.g., 'Eiffel Tower, Paris') to enrich.")
 
@@ -16,9 +21,11 @@ class NamedPlaceEnrichmentTool(BaseTool):
     args_schema: Type[BaseModel] = NamedPlaceEnrichmentInput
 
     def _run(self, location: str) -> str:
-        # Use Wikipedia API to fetch a summary
+        """
+        Fetch enrichment text for a location. Returns standardized output.
+        """
         try:
-            # Wikipedia API expects underscores instead of spaces
+            # Use Wikipedia API to fetch a summary
             search_term = location.replace(' ', '_')
             url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{search_term}"
             resp = requests.get(url, timeout=10)
@@ -26,16 +33,17 @@ class NamedPlaceEnrichmentTool(BaseTool):
                 data = resp.json()
                 if 'extract' in data and data['extract']:
                     return json.dumps({
+                        "enrichment_text": data['extract'],
+                        "source_url": data.get('content_urls', {}).get('desktop', {}).get('page', ''),
                         "success": True,
-                        "summary": data['extract'],
-                        "title": data.get('title', location),
-                        "source": "wikipedia"
+                        "error": None
                     })
                 elif 'type' in data and data['type'] == 'disambiguation':
                     return json.dumps({
+                        "enrichment_text": "",
+                        "source_url": "",
                         "success": False,
-                        "error": f"Disambiguation page found for '{location}'. Please specify a more precise location.",
-                        "source": "wikipedia"
+                        "error": f"Disambiguation page found for '{location}'. Please specify a more precise location."
                     })
             # If not found, try a search
             search_url = f"https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch={location}&format=json"
@@ -51,17 +59,21 @@ class NamedPlaceEnrichmentTool(BaseTool):
                         data = resp.json()
                         if 'extract' in data and data['extract']:
                             return json.dumps({
+                                "enrichment_text": data['extract'],
+                                "source_url": data.get('content_urls', {}).get('desktop', {}).get('page', ''),
                                 "success": True,
-                                "summary": data['extract'],
-                                "title": data.get('title', first_title),
-                                "source": "wikipedia"
+                                "error": None
                             })
             return json.dumps({
+                "enrichment_text": "",
+                "source_url": "",
                 "success": False,
                 "error": f"No Wikipedia summary found for '{location}'."
             })
         except Exception as e:
             return json.dumps({
+                "enrichment_text": "",
+                "source_url": "",
                 "success": False,
-                "error": f"Failed to fetch enrichment: {e}"
+                "error": str(e)
             })

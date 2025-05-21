@@ -1,7 +1,7 @@
 [project]
-name = "image_metadata_conversational_assistant"
+name = "image_metadata_conversational_assistant_backend"
 version = "0.1.0"
-description = "image_metadata_conversational_assistant using crewAI"
+description = "Conversational image metadata assistant backend using CrewAI"
 authors = [{ name = "Your Name", email = "you@example.com" }]
 requires-python = ">=3.10,<3.13"
 dependencies = [
@@ -9,11 +9,12 @@ dependencies = [
 ]
 
 [project.scripts]
-image_metadata_conversational_assistant = "image_metadata_conversational_assistant.main:run"
-run_crew = "image_metadata_conversational_assistant.main:run"
-train = "image_metadata_conversational_assistant.main:train"
-replay = "image_metadata_conversational_assistant.main:replay"
-test = "image_metadata_conversational_assistant.main:test"
+image_metadata_conversational_assistant = "app.main:run"
+run_crew = "app.main:run"
+train = "app.main:train"
+replay = "app.main:replay"
+test = "app.main:test"
+backend = "app.main:run"
 
 [build-system]
 requires = ["hatchling"]

@@ -1,7 +1,7 @@
 from crewai.tools import BaseTool
 from typing import Type
 from pydantic import BaseModel, Field
-from image_metadata_conversational_assistant.store.session_store import SessionStore
+from app.store.session_store import SessionStore
 import os
 import json
 
@@ -10,6 +10,10 @@ class MetadataCacheInput(BaseModel):
     image_id: str = Field(..., description="Unique image ID (filename or hash) for the uploaded image.")
     metadata_json: str = Field(..., description="Raw JSON string of extracted metadata from MetadataExtractionAgent.")
 
+"""
+Session metadata cache tool for CrewAI. Stores extracted image metadata in a Redis-backed session store.
+Returns output matching the standardized schema: {"success": <bool>, "session_id": <str>, "error": <str|null>}.
+"""
 class MetadataCacheTool(BaseTool):
     name: str = "Session Metadata Cache Tool"
     description: str = (
@@ -19,12 +23,15 @@ class MetadataCacheTool(BaseTool):
     args_schema: Type[BaseModel] = MetadataCacheInput
 
     def _run(self, session_id: str, image_id: str, metadata_json: str) -> str:
+        """
+        Store extracted metadata in the session store. Returns standardized output.
+        """
         try:
-            # Parse the metadata JSON string
             metadata = json.loads(metadata_json)
         except Exception as e:
             return json.dumps({
                 "success": False,
+                "session_id": session_id,
                 "error": f"Invalid metadata JSON: {e}"
             })
         try:
@@ -32,10 +39,12 @@ class MetadataCacheTool(BaseTool):
             store.set_metadata(session_id, image_id, metadata)
             return json.dumps({
                 "success": True,
-                "message": f"Metadata for image {image_id} cached successfully in session {session_id}."
+                "session_id": session_id,
+                "error": None
             })
         except Exception as e:
             return json.dumps({
                 "success": False,
+                "session_id": session_id,
                 "error": f"Failed to cache metadata: {e}"
             })

@@ -6,7 +6,7 @@ interface ChatContextType {
   messages: MessageType[];
   isTyping: boolean;
   uploadProgress: number;
-  sendMessage: (content: string) => void;
+  sendMessage: (content: string, imageId?: string) => void;
   uploadImage: (file: File) => Promise<string>;
   clearHistory: () => void;
 }
@@ -31,7 +31,7 @@ export const ChatProvider: React.FC<ChatProviderProps> = ({ children }) => {
   const [isTyping, setIsTyping] = useState<boolean>(false);
   const [uploadProgress, setUploadProgress] = useState<number>(0);
   
-  const { socket, isConnected, sessionId, sendPrompt, setActiveImage: socketSetActiveImage } = useSocket();
+  const { socket, isConnected, sessionId } = useSocket();
   const timeoutRef = useRef<number | null>(null);
 
   // Initialize and listen for socket events
@@ -51,23 +51,6 @@ export const ChatProvider: React.FC<ChatProviderProps> = ({ children }) => {
       }
     });
 
-    // Listen for typing indicators
-    socket.on('typing', (data: { session_id: string, status: boolean }) => {
-      if (data.session_id === sessionId) {
-        setIsTyping(data.status);
-      }
-    });
-
-    // Listen for upload confirmations
-    socket.on('upload_ack', (data: { session_id: string, image_id: string, filename: string }) => {
-      if (data.session_id === sessionId) {
-        setUploadProgress(100);
-        
-        // Set active image on the server
-        socketSetActiveImage(data.image_id);
-      }
-    });
-
     // Listen for errors
     socket.on('error', (data: { msg: string }) => {
       const errorMessage: MessageType = {
@@ -81,30 +64,21 @@ export const ChatProvider: React.FC<ChatProviderProps> = ({ children }) => {
 
     return () => {
       socket.off('answer');
-      socket.off('typing');
-      socket.off('upload_ack');
-      socket.off('active_image_set');
       socket.off('error');
     };
-  }, [socket, sessionId, socketSetActiveImage]);
+  }, [socket, sessionId]);
 
-  // Send a message to the server
-  const sendMessage = useCallback((content: string) => {
-    // Don't send empty messages
+  // Send a message to the server (Q&A)
+  const sendMessage = useCallback((content: string, imageId?: string) => {
     if (!content.trim()) return;
-
-    // Add message to local state immediately
     const userMessage: MessageType = {
       role: 'user',
       content,
       timestamp: Date.now()
     };
-    setMessages(prev => [...prev, userMessage]);    // Check if socket is connected before trying to send
+    setMessages(prev => [...prev, userMessage]);
     if (!socket || !isConnected) {
-      // Set typing indicator briefly to simulate attempt at connection
       setIsTyping(true);
-      
-      // Show connection error after a short delay to make it feel more natural
       setTimeout(() => {
         setIsTyping(false);
         const connectionErrorMessage: MessageType = {
@@ -113,59 +87,54 @@ export const ChatProvider: React.FC<ChatProviderProps> = ({ children }) => {
           timestamp: Date.now()
         };
         setMessages(prev => [...prev, connectionErrorMessage]);
-      }, 2500); // 2.5 second delay
-      
+      }, 2500);
       return;
     }
-
-    // Send to server
-    sendPrompt(content);
-    
-    // Set typing indicator
+    // Always require imageId for Q&A
+    if (!imageId) {
+      setIsTyping(false);
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: 'Please upload an image before asking a question.',
+        timestamp: Date.now()
+      }]);
+      return;
+    }
+    socket.emit('user_question', {
+      session_id: sessionId,
+      image_id: imageId,
+      question: content
+    });
     setIsTyping(true);
-    
-    // Set a timeout to clear typing indicator if the server doesn't respond
     if (timeoutRef.current) {
       window.clearTimeout(timeoutRef.current);
     }
-    
     timeoutRef.current = window.setTimeout(() => {
       setIsTyping(false);
-      const timeoutMessage: MessageType = {
+      setMessages(prev => [...prev, {
         role: 'assistant',
         content: 'The server is taking too long to respond. Please try again.',
         timestamp: Date.now()
-      };
-      setMessages(prev => [...prev, timeoutMessage]);
-    }, 60000); // 60 second timeout
-  }, [sendPrompt, socket, isConnected]);
+      }]);
+    }, 60000);
+  }, [socket, isConnected, sessionId]);
+
   // Upload an image to the server and add it to the chat
   const uploadImage = useCallback(async (file: File): Promise<string> => {
     try {
       setUploadProgress(0);
-        // Check if socket is connected before trying to upload
       if (!socket || !isConnected) {
-        // Show small upload progress to indicate an attempt
         setUploadProgress(10);
-        
-        // Wait a moment before showing the error
         await new Promise(resolve => setTimeout(resolve, 2000));
-        
         setUploadProgress(0);
         throw new Error("I'm currently unable to connect to the server. Please check your internet connection and try again later.");
       }
-      
       // Create form data
       const formData = new FormData();
       formData.append('file', file);
       formData.append('session_id', sessionId);
-      
-      // Get backend URL
       const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
-      
-      // Create a local object URL for immediate display
       const objectUrl = URL.createObjectURL(file);
-        // Add a temporary message with the image
       const imageMessage: MessageType = {
         role: 'user',
         content: '',
@@ -173,15 +142,11 @@ export const ChatProvider: React.FC<ChatProviderProps> = ({ children }) => {
         image: {
           id: 'temp',
           url: objectUrl,
-          filename: file.name // Include filename as required by the interface
+          filename: file.name
         }
       };
       setMessages(prev => [...prev, imageMessage]);
-      
-      // Create XMLHttpRequest to track progress
       const xhr = new XMLHttpRequest();
-      
-      // Setup a promise to handle the response
       const uploadPromise = new Promise<string>((resolve, reject) => {
         xhr.upload.addEventListener('progress', (event) => {
           if (event.lengthComputable) {
@@ -189,31 +154,28 @@ export const ChatProvider: React.FC<ChatProviderProps> = ({ children }) => {
             setUploadProgress(progress);
           }
         });
-        
         xhr.onreadystatechange = () => {
           if (xhr.readyState === 4) {
             if (xhr.status >= 200 && xhr.status < 300) {
               try {
-                const response = JSON.parse(xhr.responseText);
-                  // Update the temporary message with the actual image info
-                setMessages(prev => prev.map(msg => {
+                const response = JSON.parse(xhr.responseText);                setMessages(prev => prev.map(msg => {
                   if (msg.timestamp === imageMessage.timestamp && msg.image?.id === 'temp') {
                     return {
                       ...msg,
                       image: {
                         id: response.image_id,
-                        filename: response.filename,
-                        url: `${backendUrl}/uploads/${response.filename}`
+                        filename: file.name,
+                        url: `${backendUrl}/uploads/${response.image_id}`
                       }
                     };
                   }
                   return msg;
                 }));
-                
                 resolve(response.image_id);
               } catch (error) {
                 reject(new Error('Invalid response from server'));
-              }            } else {
+              }
+            } else {
               let errorMessage;
               switch (xhr.status) {
                 case 0:
@@ -239,46 +201,32 @@ export const ChatProvider: React.FC<ChatProviderProps> = ({ children }) => {
             }
           }
         };
-          xhr.onerror = () => {
+        xhr.onerror = () => {
           reject(new Error('Could not connect to the server. Please check your internet connection and try again.'));
         };
-        
         xhr.ontimeout = () => {
           reject(new Error('The server took too long to respond. Please try again later.'));
         };
-
-        // Set a timeout for the request
-        xhr.timeout = 15000; // 15 seconds timeout
+        xhr.timeout = 15000;
       });
-      
-      // Open and send the request
       xhr.open('POST', `${backendUrl}/upload`);
       xhr.send(formData);
-      
-      // Wait for the upload to complete and return the image ID
       return await uploadPromise;
-        } catch (error) {
+    } catch (error) {
       console.error('Error uploading image:', error);
-      
-      // Create a user-friendly error message
       const errorMessage: MessageType = {
         role: 'assistant',
         content: `${error instanceof Error ? error.message : 'Sorry, there was a problem uploading your image. Please try again.'}`,
         timestamp: Date.now()
       };
-      
-      // Remove the temporary message if it exists
       setMessages(prev => {
-        // Find and remove the temp message first
         const withoutTempImage = prev.filter(msg => !(msg.image?.id === 'temp' && msg.role === 'user' && msg.content === ''));
-        // Then add the error message
         return [...withoutTempImage, errorMessage];
       });
-      
       setUploadProgress(0);
       throw error;
     }
-  }, [sessionId, socketSetActiveImage]);
+  }, [sessionId, socket, isConnected]);
 
   // Clear chat history
   const clearHistory = useCallback(() => {

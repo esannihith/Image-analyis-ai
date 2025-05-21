@@ -1,0 +1,114 @@
+---
+extract_metadata:
+  description: Extracts EXIF, IPTC, and XMP metadata from the provided image file, including timestamp, GPS coordinates, camera make/model, ISO, aperture, shutter speed, and focal length.
+  expected_output: '{"metadata": {"exif": <dict>, "iptc": <dict>, "xmp": <dict>, "processed_data": <dict>}, "success": <bool>, "error": <str|null>}'
+  async_execution: false
+  agent: MetadataExtractionAgent
+
+cache_session_metadata:
+  description: Stores extracted metadata from the image file in the session store using the provided session ID for subsequent queries.
+  expected_output: '{"success": <bool>, "session_id": <str>, "error": <str|null>}'
+  async_execution: false
+  agent: MetadataCacheAgent
+  context:
+    - extract_metadata
+
+normalize_prompt:
+  description: Normalizes the user query by resolving ambiguous references (e.g., 'this image' to a specific image ID) using the PromptEnrichmentAgent.
+  expected_output: '{"normalized_query": <str>, "resolved_image_ids": <list>, "success": <bool>, "error": <str|null>}'
+  async_execution: false
+  agent: PromptEnrichmentAgent
+  context:
+    - cache_session_metadata
+
+filter_statistics:
+  description: Analyzes cached metadata for filtering queries (e.g., 'How many photos were shot at 1/60s?') or common settings (e.g., 'What camera settings should I use?') and computes statistics.
+  expected_output: '{"summary": <str>, "statistics": <dict>, "image_ids": <list>, "success": <bool>, "error": <str|null>}'
+  async_execution: false
+  agent: FilterAndStatsAgent
+  context:
+    - cache_session_metadata
+    - normalize_prompt
+
+compare_metadata:
+  description: Compares metadata (ISO, aperture, shutter speed) between two or more images referenced in the query (e.g., 'Compare lighting in this photo to the first one').
+  expected_output: '{"comparison": <str>, "differences": <dict>, "image_ids": <list>, "success": <bool>, "error": <str|null>}'
+  async_execution: false
+  agent: ComparisonAgent
+  context:
+    - cache_session_metadata
+    - normalize_prompt
+
+reverse_geocode_location:
+  description: Extracts GPS data from cached metadata for the specified image and session ID, converting it to a human-readable location name.
+  expected_output: '{"location": <str>, "success": <bool>, "error": <str|null>}'
+  async_execution: false
+  agent: ReverseGeocodingAgent
+  context:
+    - extract_metadata
+    - cache_session_metadata
+
+enrich_named_place:
+  description: Fetches a concise summary or Wikipedia snippet for the location derived from reverse geocoding, for queries like 'Tell me about this monument.'
+  expected_output: '{"enrichment_text": <str>, "source_url": <str>, "success": <bool>, "error": <str|null>}'
+  async_execution: false
+  agent: NamedPlaceEnrichmentAgent
+  context:
+    - reverse_geocode_location
+
+lookup_weather:
+  description: Retrieves weather conditions (temperature, cloud cover, rainfall) for the timestamp and GPS location from the image's metadata using the Visual Crossing Timeline Weather API.
+  expected_output: '{"weather_report": <str>, "weather_data": <dict>, "success": <bool>, "error": <str|null>}'
+  async_execution: false
+  agent: WeatherDataAgent
+  context:
+    - extract_metadata
+    - cache_session_metadata
+    - reverse_geocode_location
+
+export_csv:
+  description: Serializes all cached metadata for the session ID into CSV format and generates a secure download link.
+  expected_output: '{"download_link": <str>, "csv": <str>, "success": <bool>, "error": <str|null>}'
+  async_execution: false
+  agent: CSVExportAgent
+  context:
+    - cache_session_metadata
+
+assemble_response:
+  description: Combines outputs from relevant agents, validates them using CriticAgent, and uses the Groq LLM to generate a final response for the user query.
+  expected_output: '{"final_response": <str>, "success": <bool>, "error": <str|null>}'
+  async_execution: false
+  agent: OrchestrationManager
+  context:
+    - extract_metadata
+    - reverse_geocode_location
+    - filter_statistics
+    - compare_metadata
+    - enrich_named_place
+    - lookup_weather
+    - export_csv
+
+extract_datetime:
+  description: Extracts the timestamp (date and time) from the EXIF metadata of the provided image.
+  expected_output: '{"datetime": <str>, "success": <bool>, "error": <str|null>}'
+  async_execution: false
+  agent: MetadataExtractionAgent
+  context:
+    - extract_metadata
+
+extract_location:
+  description: Extracts GPS coordinates from the image metadata and converts them to a human-readable location name.
+  expected_output: '{"location": <str>, "success": <bool>, "error": <str|null>}'
+  async_execution: false
+  agent: ReverseGeocodingAgent
+  context:
+    - extract_metadata
+    - cache_session_metadata
+
+handle_fallback:
+  description: Handles queries outside metadata analysis scope (e.g., 'Tell me a joke') with a predefined response.
+  expected_output: '{"fallback_message": <str>, "success": <bool>, "error": <str|null>}'
+  async_execution: false
+  agent: FallBackAgent
+  context:
+    - normalize_prompt

@@ -47,3 +47,6 @@ Frontend/build/
 # Ignore backend build artifacts
 Backend/dist/
 Backend/build/
+
+
+Backend/uploads

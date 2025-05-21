@@ -1,1 +1,11 @@
 pyexiv2
+fastapi
+python-socketio[asgi]
+uvicorn[standard]
+redis
+pydantic
+python-dotenv
+Pillow
+python-multipart
+crewai
+pyyaml

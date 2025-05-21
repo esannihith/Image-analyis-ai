@@ -6,6 +6,10 @@ import json
 import os
 from datetime import datetime
 
+"""
+Image metadata extraction tool for CrewAI. Extracts EXIF/IPTC/XMP metadata from images, with hachoir fallback.
+Returns output matching the standardized schema: {"metadata": <dict>, "success": <bool>, "error": <str|null>}.
+"""
 
 class ImageMetadataInput(BaseModel):
     """Input schema for Image Metadata Extraction Tool."""
@@ -23,20 +27,16 @@ class ImageMetadataExtractionTool(BaseTool):
 
     def _run(self, image_path: str) -> str:
         """
-        Extract all metadata from image file using pyexiv2.
-        
-        Args:
-            image_path: Full path to the image file
-            
-        Returns:
-            JSON string containing all extracted metadata
+        Extract all metadata from image file using pyexiv2, with hachoir fallback.
+        Returns a JSON string matching the expected output schema.
         """
         try:
             # Validate file exists
             if not os.path.exists(image_path):
                 return json.dumps({
-                    "error": f"File not found: {image_path}",
-                    "success": False
+                    "metadata": {},
+                    "success": False,
+                    "error": f"File not found: {image_path}"
                 })
             
             # Validate file is an image
@@ -44,8 +44,9 @@ class ImageMetadataExtractionTool(BaseTool):
             file_ext = os.path.splitext(image_path)[1].lower()
             if file_ext not in valid_extensions:
                 return json.dumps({
-                    "error": f"Unsupported file format: {file_ext}",
-                    "success": False
+                    "metadata": {},
+                    "success": False,
+                    "error": f"Unsupported file format: {file_ext}"
                 })
             
             # Initialize metadata container
@@ -63,34 +64,61 @@ class ImageMetadataExtractionTool(BaseTool):
                 "extraction_timestamp": datetime.now().isoformat()
             }
             
-            # Open image and extract metadata
-            with pyexiv2.Image(image_path) as img:
-                # Extract EXIF data
-                exif_data = img.read_exif()
-                metadata_result["exif"] = exif_data
+            try:
+                # Open image and extract metadata
+                with pyexiv2.Image(image_path) as img:
+                    # Extract EXIF data
+                    exif_data = img.read_exif()
+                    metadata_result["exif"] = exif_data
+                    
+                    # Extract IPTC data
+                    iptc_data = img.read_iptc()
+                    metadata_result["iptc"] = iptc_data
+                    
+                    # Extract XMP data
+                    xmp_data = img.read_xmp()
+                    metadata_result["xmp"] = xmp_data
+                    
+                    # Process and extract key fields for easy access
+                    processed = self._process_key_metadata(exif_data, iptc_data, xmp_data)
+                    metadata_result["processed_data"] = processed
                 
-                # Extract IPTC data
-                iptc_data = img.read_iptc()
-                metadata_result["iptc"] = iptc_data
+                return json.dumps({
+                    "metadata": metadata_result,
+                    "success": True,
+                    "error": None
+                }, indent=2, ensure_ascii=False)
                 
-                # Extract XMP data
-                xmp_data = img.read_xmp()
-                metadata_result["xmp"] = xmp_data
-                
-                # Process and extract key fields for easy access
-                processed = self._process_key_metadata(exif_data, iptc_data, xmp_data)
-                metadata_result["processed_data"] = processed
-            
-            return json.dumps(metadata_result, indent=2, ensure_ascii=False)
+            except Exception as e:
+                # Internal fallback using hachoir
+                try:
+                    from hachoir.parser import createParser
+                    from hachoir.metadata import extractMetadata
+                    parser = createParser(image_path)
+                    if not parser:
+                        raise Exception("Hachoir parser could not be created.")
+                    metadata = extractMetadata(parser)
+                    if not metadata:
+                        raise Exception("Hachoir could not extract metadata.")
+                    meta_dict = {item.key: item.value for item in metadata.exportPlaintext()}
+                    return json.dumps({
+                        "metadata": meta_dict,
+                        "success": True,
+                        "error": None
+                    }, indent=2, ensure_ascii=False)
+                except Exception as hachoir_exc:
+                    return json.dumps({
+                        "metadata": {},
+                        "success": False,
+                        "error": f"Extraction failed: {str(e)}; Hachoir fallback also failed: {str(hachoir_exc)}"
+                    }, indent=2, ensure_ascii=False)
             
         except Exception as e:
-            error_result = {
-                "error": f"Failed to extract metadata: {str(e)}",
-                "file_path": image_path,
+            return json.dumps({
+                "metadata": {},
                 "success": False,
-                "extraction_timestamp": datetime.now().isoformat()
-            }
-            return json.dumps(error_result, indent=2)
+                "error": f"Failed to extract metadata: {str(e)}"
+            }, indent=2)
     
     def _process_key_metadata(self, exif_data: dict, iptc_data: dict, xmp_data: dict) -> dict:
         """

@@ -22,10 +22,10 @@ crewai install
 
 **Add your `OPENAI_API_KEY` into the `.env` file**
 
-- Modify `src/image_metadata_conversational_assistant/config/agents.yaml` to define your agents
-- Modify `src/image_metadata_conversational_assistant/config/tasks.yaml` to define your tasks
-- Modify `src/image_metadata_conversational_assistant/crew.py` to add your own logic, tools and specific args
-- Modify `src/image_metadata_conversational_assistant/main.py` to add custom inputs for your agents and tasks
+- Modify `app/config/agents.yaml` to define your agents
+- Modify `app/config/tasks.yaml` to define your tasks
+- Modify `app/crew.py` to add your own logic, tools and specific args
+- Modify `app/main.py` to add custom inputs for your agents and tasks
 
 ## Running the Project
 
@@ -35,13 +35,41 @@ To kickstart your crew of AI agents and begin task execution, run this from the 
 $ crewai run
 ```
 
-This command initializes the image_metadata_conversational_assistant Crew, assembling the agents and assigning them tasks as defined in your configuration.
+This command initializes the CrewAI-based assistant, assembling the agents and assigning them tasks as defined in your configuration.
 
 This example, unmodified, will run the create a `report.md` file with the output of a research on LLMs in the root folder.
 
+# Backend Setup
+
+## Install dependencies
+
+```sh
+pip install -r requirements.txt
+```
+
+## Run the server with auto-reload (development)
+
+```sh
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+Alternatively, you can use the provided convenience scripts:
+
+```sh
+# On Linux/Mac
+./run_backend.sh
+
+# On Windows
+run_backend.bat
+```
+
+- This will start the FastAPI server with auto-reload on any file change.
+- Make sure you run this command from the Backend directory.
+- The server will be available at http://localhost:8000
+
 ## Understanding Your Crew
 
-The image_metadata_conversational_assistant Crew is composed of multiple AI agents, each with unique roles, goals, and tools. These agents collaborate on a series of tasks, defined in `config/tasks.yaml`, leveraging their collective skills to achieve complex objectives. The `config/agents.yaml` file outlines the capabilities and configurations of each agent in your crew.
+The CrewAI-based assistant is composed of multiple AI agents, each with unique roles, goals, and tools. These agents collaborate on a series of tasks, defined in `app/config/tasks.yaml`, leveraging their collective skills to achieve complex objectives. The `app/config/agents.yaml` file outlines the capabilities and configurations of each agent in your crew.
 
 ## Support
 
