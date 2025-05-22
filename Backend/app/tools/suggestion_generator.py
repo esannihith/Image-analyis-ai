@@ -29,6 +29,76 @@ try:
 except Exception as e:
     logger.error(f"Error loading tools.yaml for SuggestionGenerator: {e}. Using defaults.")
 
+def _get_default_predefined_suggestions() -> Dict[str, Dict[str, Any]]:
+    # Paste the exact dictionary you assigned to self.PREDEFINED_SUGGESTIONS here
+    return {
+        "DataValidationIssue": {
+            "keywords": ["invalid input", "validationerror", "missing required field", "typeerror", "valueerror", "parse error", "decodeerror", "schema validation", "incorrect format"],
+            "suggestions": [
+                {"text": "Please check the format of your input. Ensure all required fields are provided correctly and match the expected data types.", "type": "user_action", "score": 0.9},
+                {"text": "The file you provided might be corrupted or in an unsupported format. Try validating the file or using a standard format (e.g., JPEG, PNG for images).", "type": "user_action", "score": 0.8},
+                {"text": "If you are using an API, ensure your request payload matches the expected schema. Consult the API documentation for details.", "type": "developer_action", "score": 0.85},
+            ]
+        },
+        "ExternalServiceOrNetworkIssue": {
+            "keywords": ["timeout", "connection refused", "dns lookup", "host not found", "sslerror", "service unavailable", "500", "502", "503", "504", "network is unreachable", "api key invalid", "authentication failed", "rate limit", "http error", "request failed"],
+            "suggestions": [
+                {"text": "An external service or network connection required for this operation may be temporarily unavailable or misconfigured. Please try again in a few minutes.", "type": "user_action", "score": 0.9},
+                {"text": "If the issue persists, check your internet connection and the status page of the external service (if available).", "type": "troubleshooting_step", "score": 0.8},
+                {"text": "Ensure any required API keys for external services are correctly configured, valid, and have not expired.", "type": "admin_action", "score": 0.85},
+            ]
+        },
+        "ConfigurationProblem": {
+            "keywords": ["config file not found", "missing configuration", "invalid config value", "config error"],
+            "suggestions": [
+                {"text": "There seems to be a system configuration issue. Please report this to the administrator, providing the error details.", "type": "report_issue", "score": 0.95},
+                {"text": "The application may require specific environment variables or configuration files to be set up correctly. Please check the documentation.", "type": "admin_action", "score": 0.9},
+            ]
+        },
+        "FileSystemProblem": {
+            "keywords": ["filenotfound", "no such file or directory", "permission denied", "ioerror", "could not read file", "could not write file"],
+            "suggestions": [
+                {"text": "The specified file could not be found, or the application does not have permission to access it. Please verify the file path and permissions.", "type": "user_action", "score": 0.9},
+            ]
+        },
+        "InternalToolError": {
+            "keywords": ["tool execution failed", "internal logic error", "unexpected tool behavior", "agent error", "internal error", "runtime error in tool"],
+            "suggestions": [
+                {"text": "An internal component encountered an issue. Retrying the operation might help. If it persists, please report the problem, noting the error message.", "type": "user_action", "score": 0.7},
+            ]
+        },
+        "ResourceLimitProblem": {
+            "keywords": ["out of memory", "memoryerror", "disk space full", "resource temporarily unavailable"],
+            "suggestions": [
+                {"text": "The system is currently experiencing high load or has reached a resource limit. Please try again later.", "type": "user_action", "score": 0.8},
+                {"text": "If you are processing a very large file or request, consider trying with a smaller one.", "type": "user_action", "score": 0.75}
+            ]
+        },
+        "OutOfScopeQuery": {
+            "keywords": [],
+            "suggestions": [
+                {"text": "I'm designed to help with image metadata analysis. Could you try rephrasing your query to be about image properties, content, or technical details?", "type": "clarification_request", "score": 0.9},
+                {"text": "Perhaps you could ask about specific EXIF data, location information if available, or technical aspects of the image?", "type": "clarification_request", "score": 0.85},
+                {"text": "I can help with things like 'What camera was used for this image?' or 'Tell me about the exposure settings'.", "type": "example_query", "score": 0.8},
+            ]
+        },
+        "GenericErrorFallback": {
+            "keywords": [],
+            "suggestions": [
+                {"text": "An unexpected issue occurred. Please try your request again. If the problem continues, consider rephrasing or simplifying your query, and note the error message provided.", "type": "user_action", "score": 0.7},
+                {"text": "You can also try being more specific about what you're trying to achieve or asking for a different type of analysis.", "type": "user_action", "score": 0.6},
+            ]
+        }
+    }
+
+def _get_default_generic_suggestions() -> List[Dict[str, Any]]:
+    # Paste the exact list you assigned to self.GENERIC_SUGGESTIONS here
+    return [
+        {"text": "Try the operation again after a short while.", "type": "user_action", "score": 0.5},
+        {"text": "Ensure your internet connection is stable if the operation involves external resources.", "type": "troubleshooting_step", "score": 0.4},
+        {"text": "If the problem persists, please report the issue with the error details provided so it can be investigated.", "type": "report_issue", "score": 0.6}
+    ]
+
 class SuggestionContextInput(BaseModel):
     """Context provided to generate suggestions."""
     original_user_query: Optional[str] = Field(default=None, description="The user's original query if the issue is an out-of-scope request.")
@@ -49,85 +119,24 @@ class SuggestionGeneratorTool(BaseTool):
     )
     args_schema: Type[BaseModel] = SuggestionContextInput
 
-    max_suggestions_config: int
-    confidence_threshold_config: float
-
-    PREDEFINED_SUGGESTIONS: Dict[str, Dict[str, Any]]
-    GENERIC_SUGGESTIONS: List[Dict[str, Any]]
+    # Initialize at class level
+    max_suggestions_config: int = tool_config.get("max_suggestions", int(os.getenv("SUGGEN_MAX_SUGGESTIONS", 3)))
+    confidence_threshold_config: float = tool_config.get("confidence_threshold", float(os.getenv("SUGGEN_CONFIDENCE_THRESHOLD", 0.5)))
+    
+    # Use Field with default_factory for complex types
+    PREDEFINED_SUGGESTIONS: Dict[str, Dict[str, Any]] = Field(default_factory=_get_default_predefined_suggestions)
+    GENERIC_SUGGESTIONS: List[Dict[str, Any]] = Field(default_factory=_get_default_generic_suggestions)
 
     def __init__(self, **kwargs: Any):
         super().__init__(**kwargs)
-        self.max_suggestions_config = tool_config.get("max_suggestions", int(os.getenv("SUGGEN_MAX_SUGGESTIONS", 3)))
-        self.confidence_threshold_config = tool_config.get("confidence_threshold", float(os.getenv("SUGGEN_CONFIDENCE_THRESHOLD", 0.5)))
-        self._initialize_suggestions()
-        logger.debug(f"SuggestionGeneratorTool initialized with max_suggestions: {self.max_suggestions_config}, confidence_threshold: {self.confidence_threshold_config}")
-
-    def _initialize_suggestions(self):
-        self.PREDEFINED_SUGGESTIONS = {
-            "DataValidationIssue": {
-                "keywords": ["invalid input", "validationerror", "missing required field", "typeerror", "valueerror", "parse error", "decodeerror", "schema validation", "incorrect format"],
-                "suggestions": [
-                    {"text": "Please check the format of your input. Ensure all required fields are provided correctly and match the expected data types.", "type": "user_action", "score": 0.9},
-                    {"text": "The file you provided might be corrupted or in an unsupported format. Try validating the file or using a standard format (e.g., JPEG, PNG for images).", "type": "user_action", "score": 0.8},
-                    {"text": "If you are using an API, ensure your request payload matches the expected schema. Consult the API documentation for details.", "type": "developer_action", "score": 0.85},
-                ]
-            },
-            "ExternalServiceOrNetworkIssue": {
-                "keywords": ["timeout", "connection refused", "dns lookup", "host not found", "sslerror", "service unavailable", "500", "502", "503", "504", "network is unreachable", "api key invalid", "authentication failed", "rate limit", "http error", "request failed"],
-                "suggestions": [
-                    {"text": "An external service or network connection required for this operation may be temporarily unavailable or misconfigured. Please try again in a few minutes.", "type": "user_action", "score": 0.9},
-                    {"text": "If the issue persists, check your internet connection and the status page of the external service (if available).", "type": "troubleshooting_step", "score": 0.8},
-                    {"text": "Ensure any required API keys for external services are correctly configured, valid, and have not expired.", "type": "admin_action", "score": 0.85},
-                ]
-            },
-            "ConfigurationProblem": {
-                "keywords": ["config file not found", "missing configuration", "invalid config value", "config error"],
-                "suggestions": [
-                    {"text": "There seems to be a system configuration issue. Please report this to the administrator, providing the error details.", "type": "report_issue", "score": 0.95},
-                    {"text": "The application may require specific environment variables or configuration files to be set up correctly. Please check the documentation.", "type": "admin_action", "score": 0.9},
-                ]
-            },
-            "FileSystemProblem": {
-                "keywords": ["filenotfound", "no such file or directory", "permission denied", "ioerror", "could not read file", "could not write file"],
-                "suggestions": [
-                    {"text": "The specified file could not be found, or the application does not have permission to access it. Please verify the file path and permissions.", "type": "user_action", "score": 0.9},
-                ]
-            },
-            "InternalToolError": {
-                "keywords": ["tool execution failed", "internal logic error", "unexpected tool behavior", "agent error", "internal error", "runtime error in tool"],
-                "suggestions": [
-                    {"text": "An internal component encountered an issue. Retrying the operation might help. If it persists, please report the problem, noting the error message.", "type": "user_action", "score": 0.7},
-                ]
-            },
-            "ResourceLimitProblem": {
-                "keywords": ["out of memory", "memoryerror", "disk space full", "resource temporarily unavailable"],
-                "suggestions": [
-                    {"text": "The system is currently experiencing high load or has reached a resource limit. Please try again later.", "type": "user_action", "score": 0.8},
-                    {"text": "If you are processing a very large file or request, consider trying with a smaller one.", "type": "user_action", "score": 0.75}
-                ]
-            },
-            "OutOfScopeQuery": {
-                "keywords": [], # Intentionally empty; triggered by original_user_query and no error_message
-                "suggestions": [
-                    {"text": "I'm designed to help with image metadata analysis. Could you try rephrasing your query to be about image properties, content, or technical details?", "type": "clarification_request", "score": 0.9},
-                    {"text": "Perhaps you could ask about specific EXIF data, location information if available, or technical aspects of the image?", "type": "clarification_request", "score": 0.85},
-                    {"text": "I can help with things like 'What camera was used for this image?' or 'Tell me about the exposure settings'.", "type": "example_query", "score": 0.8},
-                ]
-            },
-            "GenericErrorFallback": {
-                "keywords": [], # Intentionally empty; used if error message exists but doesn't match other categories
-                "suggestions": [
-                    {"text": "An unexpected issue occurred. Please try your request again. If the problem continues, consider rephrasing or simplifying your query, and note the error message provided.", "type": "user_action", "score": 0.7},
-                    {"text": "You can also try being more specific about what you're trying to achieve or asking for a different type of analysis.", "type": "user_action", "score": 0.6},
-                ]
-            }
-        }
-        self.GENERIC_SUGGESTIONS = [
-            {"text": "Try the operation again after a short while.", "type": "user_action", "score": 0.5},
-            {"text": "Ensure your internet connection is stable if the operation involves external resources.", "type": "troubleshooting_step", "score": 0.4},
-            {"text": "If the problem persists, please report the issue with the error details provided so it can be investigated.", "type": "report_issue", "score": 0.6}
-        ]
-        logger.debug("PREDEFINED_SUGGESTIONS and GENERIC_SUGGESTIONS have been initialized.")
+        # Configurations are now set at class level.
+        logger.debug(
+            f"SuggestionGeneratorTool instance created with "
+            f"max_suggestions: {self.max_suggestions_config}, "
+            f"confidence_threshold: {self.confidence_threshold_config}, "
+            f"predefined_suggestions_loaded: {bool(self.PREDEFINED_SUGGESTIONS)}, " # Verify they are loaded
+            f"generic_suggestions_loaded: {bool(self.GENERIC_SUGGESTIONS)}"  # Verify they are loaded
+        )
 
     def _generate_suggestions(self, context: SuggestionContextInput) -> List[Dict[str, Any]]:
         suggestions: List[Dict[str, Any]] = []

@@ -37,6 +37,7 @@ class LensDatabaseTool(BaseTool):
 
     cache_ttl_config: int = tool_config.get("cache_ttl", int(os.getenv("LENSDB_CACHE_TTL", 3600)))
     # The 'storage: redis' config is implicitly handled by using SessionStore for Redis connection.
+    redis_conn: Optional[Any] = None
 
     def __init__(self, session_store: Optional[SessionStore] = None, **kwargs):
         super().__init__(**kwargs)

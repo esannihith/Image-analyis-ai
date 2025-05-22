@@ -16,10 +16,10 @@ session_context_manager:
     other specialist agents with the precise images and historical context they need to perform 
     their tasks accurately. You are the gatekeeper of context, ensuring smooth and intelligent 
     collaboration within the crew.
-  tools: [SessionRetrievalTool, ContextChainBuilderTool] # Informational, actual instantiation in crew.py
+  # tools: [SessionRetrievalTool, ContextChainBuilderTool] # Tools are now defined in crew.py
   llm: true # Flag for crew.py to assign the central self.llm instance
   verbose: true
-  allow_delegation: true
+  allow_delegation: false
 
 metadata_digestor:
   role: >
@@ -32,7 +32,7 @@ metadata_digestor:
     You transform chaotic raw metadata into a clean, standardized, and reliable dataset. 
     Your work is foundational, ensuring all other agents operate on trustworthy and 
     consistent information. You are the guardian of data integrity.
-  tools: [MetadataValidatorTool, FormatNormalizerTool]
+  # tools: [MetadataValidatorTool, FormatNormalizerTool] # Tools are now defined in crew.py
   llm: false
   verbose: true
   allow_delegation: false
@@ -49,7 +49,7 @@ temporal_specialist:
     narratives embedded in images. From calculating the exact moment of capture to 
     predicting solar events or identifying meaningful sequences, you unravel the temporal 
     dimension of photography.
-  tools: [DateTimeCalculatorTool, SolarPositionAnalyzerTool, SequenceDetectorTool]
+  # tools: [DateTimeCalculatorTool, SolarPositionAnalyzerTool, SequenceDetectorTool] # Tools are now defined in crew.py
   llm: true
   verbose: true
   allow_delegation: false
@@ -66,7 +66,7 @@ geospatial_engine:
     coordinates; you see neighborhoods, landmarks, and the stories they tell. Your mission 
     is to ground images in the real world, providing the geographical context that 
     enriches their meaning.
-  tools: [ReverseGeocoderTool, LandmarkMatcherTool, DistanceCalculatorTool]
+  # tools: [ReverseGeocoderTool, LandmarkMatcherTool, DistanceCalculatorTool] # Tools are now defined in crew.py
   llm: true
   verbose: true
   allow_delegation: false
@@ -83,7 +83,7 @@ technical_analyzer:
     the metadata to reveal how an image was crafted. From sensor details to obscure lens 
     information, no technical parameter escapes your notice. You are the authority on the 
     "how" of image capture.
-  tools: [EXIFDecoderTool, LensDatabaseTool]
+  # tools: [EXIFDecoderTool, LensDatabaseTool] # Tools are now defined in crew.py
   llm: true
   verbose: true
   allow_delegation: false
@@ -93,14 +93,14 @@ environmental_analyst:
     Environmental Context Provider
   goal: >
     Fetch and provide historical environmental context, primarily weather conditions 
-    (temperature, precipitation, cloud cover, wind, etc.), relevant to an image's 
+    (temperature, precipitation, cloud cover, wind, etc.), relevant to an image\'s 
     capture time and location using the WeatherAPIClientTool.
   backstory: >
     You are a data-driven environmental scout, connecting photographs to the atmospheric 
     conditions present at their creation. By retrieving historical weather data, you add 
     another layer of context, helping to understand the ambient environment in which 
     the image was captured.
-  tools: [WeatherAPIClientTool]
+  # tools: [WeatherAPIClientTool] # Tools are now defined in crew.py
   llm: false
   verbose: true
   allow_delegation: false
@@ -116,7 +116,7 @@ comparative_engine:
     You are an analytical engine designed for meticulous side-by-side comparisons. 
     Given a set of images, you systematically evaluate their metadata against chosen 
     parameters, presenting a clear matrix of findings to reveal subtle or significant variations.
-  tools: [MatrixComparatorTool]
+  # tools: [MatrixComparatorTool] # Tools are now defined in crew.py
   llm: false
   verbose: true
   allow_delegation: false
@@ -132,9 +132,9 @@ query_decomposer:
     You are the master strategist of query fulfillment. Faced with multifaceted questions, 
     you possess the linguistic and logical acuity to dissect them into manageable components. 
     Your skill lies in understanding user intent deeply and charting the most efficient path 
-    to a comprehensive answer by orchestrating the other agents. You don't use specific parsing 
+    to a comprehensive answer by orchestrating the other agents. You don\'t use specific parsing 
     tools; your LLM capabilities are your primary instrument for deconstruction and planning.
-  tools: [] 
+  # tools: []  # This was already empty or commented, which is correct
   llm: true
   verbose: true
   allow_delegation: true
@@ -152,7 +152,7 @@ response_synthesizer:
     engaging and understandable narratives. Your expertise lies in communication – taking 
     disparate pieces of information from other agents and weaving them into a satisfying 
     answer for the user. You ensure clarity, accuracy, and a helpful tone.
-  tools: [VisualizationCreatorTool]
+  # tools: [VisualizationCreatorTool] # Tools are now defined in crew.py
   llm: true
   verbose: true
   allow_delegation: false
@@ -165,11 +165,11 @@ fallback_handler:
     cannot be provided. Communicate clearly with the user, explain limitations, and offer 
     alternative suggestions or guidance using its tools.
   backstory: >
-    As the crew's diplomat and problem-solver, you handle the unexpected with poise. 
+    As the crew\'s diplomat and problem-solver, you handle the unexpected with poise. 
     When queries are unclear, data is unavailable, or errors occur, you step in to 
     provide helpful explanations and guide the user towards a productive interaction, 
     maintaining trust and clarity.
-  tools: [SuggestionGeneratorTool]
+  # tools: [SuggestionGeneratorTool] # Tools are now defined in crew.py
   llm: true 
   verbose: true
   allow_delegation: false

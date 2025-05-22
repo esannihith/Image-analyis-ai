@@ -32,9 +32,6 @@ load_dotenv()
 
 @CrewBase
 class ImageAnalysisCrew():
-    # Define paths to config YAMLs as strings
-    # These paths are relative to the project root (where main.py is executed)
-    # If main.py is in backend/, and config is in backend/app/config/, then:
     agents_config = 'config/agents.yaml'
     tasks_config = 'config/tasks.yaml'
 
@@ -42,21 +39,38 @@ class ImageAnalysisCrew():
         # Initialize LLM
         self.llm = ChatGroq(
             groq_api_key=os.getenv("GROQ_API_KEY"),
-            model_name=os.getenv("GROQ_MODEL_NAME", "llama3-8b-8192"), # Added fallback
-            temperature=float(os.getenv("GROQ_TEMPERATURE", 0.2)), # Added fallback
+            model_name="groq/llama3-8b-8192", # Added fallback
+            temperature=float(os.getenv("GROQ_TEMPERATURE", 0.2)),
+            max_tokens = 6000, # Added fallback
         )
         # Initialize SessionStore
         redis_url = os.getenv("REDIS_URL")
         if not redis_url:
             raise ValueError("REDIS_URL environment variable not set.")
-        self.session_store = SessionStore(redis_url=redis_url)
-        
-        # Manual YAML loading is removed. CrewBase handles it using the paths above.
-        # self.agents_yaml_config and self.tasks_yaml_config are removed.
-        # self.agents_config and self.tasks_config will be populated by CrewAI.
-
-    # --- Agent Definitions ---
-    # Agent names (method names) MUST match the top-level keys in agents.yaml
+        try:
+            self.session_store = SessionStore(redis_url=redis_url)
+        except Exception as e:
+            print(f"CRITICAL: Failed to initialize SessionStore in ImageAnalysisCrew: {e}")
+            import traceback
+            traceback.print_exc() # Print full traceback for SessionStore failure
+            raise 
+    
+    @agent
+    def metadata_digestor(self) -> Agent:
+        config = self.agents_config['metadata_digestor'] # type: ignore
+        return Agent(
+            role=config['role'],
+            goal=config['goal'],
+            backstory=config['backstory'],
+            tools=[
+                MetadataValidatorTool(),
+                FormatNormalizerTool(),
+            ],
+            llm=self.llm if config.get('llm') else None,
+            verbose=config.get('verbose', True),
+            allow_delegation=config.get('allow_delegation', False),
+            max_iter=config.get('max_iter', 15)
+        )
 
     @agent
     def session_context_manager(self) -> Agent:
@@ -68,23 +82,6 @@ class ImageAnalysisCrew():
             tools=[
                 SessionRetrievalTool(session_store=self.session_store),
                 ContextChainBuilderTool(session_store=self.session_store)
-            ],
-            llm=self.llm if config.get('llm') else None,
-            verbose=config.get('verbose', True),
-            allow_delegation=config.get('allow_delegation', False),
-            max_iter=config.get('max_iter', 15)
-        )
-
-    @agent
-    def metadata_digestor(self) -> Agent:
-        config = self.agents_config['metadata_digestor'] # type: ignore
-        return Agent(
-            role=config['role'],
-            goal=config['goal'],
-            backstory=config['backstory'],
-            tools=[
-                MetadataValidatorTool(),
-                FormatNormalizerTool(),
             ],
             llm=self.llm if config.get('llm') else None,
             verbose=config.get('verbose', True),
@@ -355,7 +352,7 @@ class ImageAnalysisCrew():
             tasks=self.tasks,   
             process=Process.hierarchical, 
             manager_llm=self.llm, 
-            verbose=2 
+            verbose=True # Changed from verbose=2 to verbose=True
             # memory=True # Consider if you want memory for the crew
         )
     

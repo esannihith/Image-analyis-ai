@@ -1,15 +1,4 @@
-{
-  "make_db": "Canon",
-  "model_db": "EF24-70mm f/2.8L II USM",
-  "search_keys": ["ef2470mmf28liiusm", "canon2470"],
-  "mount": "Canon EF",
-  "focal_length_range_mm": [24, 70],
-  "max_aperture_at_min_focal": 2.8,
-  "max_aperture_at_max_focal": 2.8,
-  "min_aperture": 22,
-  "elements": 18,
-  "groups": 13,
-  "filter_diameter_mm": 82,
-  "optical_image_stabilization": false,
-  "weight_g": 805
-}
+[
+  { "make_db": "Nikon", "model_db": "Nikkor Z 24-70mm f/2.8 S", "search_keys": ["Z24-70f2.8S"], "mount": "Nikon Z", "type": "Zoom" /* ... other fields */ },
+  { "make_db": "Canon", "model_db": "EF 24-70mm f/2.8L II USM", "search_keys": ["EF24-70LIS2"], "mount": "Canon EF", "type": "Zoom" /* ... other fields */ }
+]

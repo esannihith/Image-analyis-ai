@@ -133,40 +133,56 @@ export const ChatProvider: React.FC<ChatProviderProps> = ({ children }) => {
   const sendMessage = useCallback((content: string, imageId?: string) => {
     if (!content.trim()) return;
 
+    const userMessage: MessageType = { role: 'user', content, timestamp: Date.now() };
+    setMessages(prev => [...prev, userMessage]);
+
     // Check service availability first
     if (!isServiceAvailable) {
       const existingStatus = messages.find(
         (m) => m.isServiceStatus && m.content === (serviceStatusMessage?.message || "The image analysis service is currently unavailable. Please try again later.")
       );
-      if (!existingStatus) {
+      // Check against current messages + the user message we just added
+      const alreadyDisplayed = messages.concat(userMessage).some(
+        (m) => m.isServiceStatus && m.content === (serviceStatusMessage?.message || "The image analysis service is currently unavailable. Please try again later.")
+      );
+
+      if (!alreadyDisplayed) {
         const serviceDownMessage: MessageType = {
           role: 'assistant',
-          content: serviceStatusMessage?.message || "The image analysis service is currently unavailable. Please try again later.",
+          content: serviceStatusMessage?.message || "The image analysis service is currently unavailable. Your message was not sent.",
           timestamp: Date.now(),
           isError: true,
           isServiceStatus: true,
         };
         setMessages(prev => [...prev, serviceDownMessage]);
       }
-      return;
+      return; // Don't attempt to send if service is down
     }
+
     // This check might be redundant if isServiceAvailable covers it, but kept for robustness
     if (!socket || !isConnected) {
       const connErrorMessage: MessageType = {
         role: 'assistant',
-        content: "I'm currently unable to connect to the server. Please check your internet connection.",
+        content: "I'm currently unable to connect to the server. Please check your internet connection. Your message was not sent.",
         timestamp: Date.now(),
         isError: true,
       };
       setMessages(prev => [...prev, connErrorMessage]);
-      return;
+      return; // Don't attempt to send if not connected
     }
 
-    const userMessage: MessageType = { role: 'user', content, timestamp: Date.now() };
-    setMessages(prev => [...prev, userMessage]);
+    // If service is available and socket is connected, proceed to emit
+    // Emit the message to the backend (actual emit logic was missing from the snippet but should be here)
+    socket.emit('user_question', {
+      question: content,
+      session_id: sessionId,
+      image_hash: imageId // Assuming imageId is the current_image_hash_focus
+    });
+
     if (timeoutRef.current) {
       window.clearTimeout(timeoutRef.current);
     }
+    setIsTyping(true); // Set typing indicator for assistant
     timeoutRef.current = window.setTimeout(() => {
       setIsTyping(false);
       setMessages(prev => [...prev, {

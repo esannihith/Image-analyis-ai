@@ -5,6 +5,7 @@ from .store.session_store import SessionStore, SessionStoreError
 import uuid
 import hashlib
 import traceback # For logging full tracebacks
+import json
 
 # Instantiate the crew.
 crew = None # Initialize crew to None
@@ -15,7 +16,7 @@ except Exception as e:
     print(f"CRITICAL: Failed to initialize ImageAnalysisCrew: {e}")
     # crew remains None, indicating the core service is unavailable
 
-sio = socketio.AsyncServer(async_mode='asgi', cors_allowed_origins='*', engineio_logger=True)
+sio = socketio.AsyncServer(async_mode='asgi', cors_allowed_origins='*', engineio_logger=False)
 
 # Helper to emit a structured service status update
 async def emit_service_unavailable_status(sid, context_message=""):
@@ -66,8 +67,12 @@ async def disconnect(sid):
 @sio.event
 async def session_init(sid, data):
     if not crew or not hasattr(crew, 'session_store') or not crew.session_store:
-        await emit_service_unavailable_status(sid, "Cannot initialize session. ")
-        return
+        # The 'connect' event handler would have already sent emit_service_unavailable_status.
+        # This check prevents a duplicate or variant message about service unavailability.
+        print(f"INFO: session_init for SID {sid} attempted but service is unavailable. Initial status already conveyed on connect.")
+        # Optionally, emit a specific error that session_init cannot proceed if needed later:
+        # await handle_session_error(sid, "Session initialization failed: Core service is unavailable.", "SESSION_INIT_SERVICE_DOWN")
+        return # Return early, do not emit the generic service_status_update again.
 
     try:
         session_id = data.get("session_id") if data and isinstance(data, dict) else None
@@ -181,12 +186,33 @@ async def user_question(sid, data):
         }
         
         print(f"Processing user question for session {session_id} with inputs: {crew_inputs}")
-        result = crew.run(inputs=crew_inputs) # Assuming crew.run is synchronous
+        raw_result = crew.run(inputs=crew_inputs)
         
-        print(f"Crew result for session {session_id}: {result}")
+        processed_result: str
+        if isinstance(raw_result, dict):
+            # Attempt to extract a meaningful message if it's a structured error/response
+            if raw_result.get("success") == False and raw_result.get("message"):
+                processed_result = f"An error occurred: {raw_result.get('message')}"
+                if raw_result.get("error") and raw_result.get("error") != raw_result.get("message"):
+                    processed_result += f" (Details: {raw_result.get('error')})"
+            elif isinstance(raw_result.get("result"), str): # Check if there's a nested result string
+                processed_result = raw_result.get("result")
+            else:
+                # Fallback: convert the whole dict to a JSON string if it's not a simple error
+                # This might still be an object if the crew's final output isn't a string by design
+                # The LLM/agent should ideally return a string as the final textual output.
+                processed_result = json.dumps(raw_result, indent=2) 
+        elif isinstance(raw_result, str):
+            processed_result = raw_result
+        else:
+            # Fallback for any other type
+            processed_result = str(raw_result)
+
+        print(f"Crew raw_result for session {session_id}: {raw_result}")
+        print(f"Crew processed_result for session {session_id}: {processed_result}")
         await sio.emit("analysis_result", {
             "question": user_query,
-            "result": result
+            "result": processed_result # Ensure this is always a string
         }, to=sid)
         
     except Exception as e:
