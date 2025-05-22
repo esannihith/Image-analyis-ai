@@ -250,14 +250,22 @@ export const ChatProvider: React.FC<ChatProviderProps> = ({ children }) => {
         const uploadTimeout = setTimeout(() => {
           socket.off('upload_success', successListener); 
           // 'upload_error' is now handled by the general listener in useEffect
-          setMessages(prev => prev.filter(msg => msg.image?.id !== tempId)); // Clean optimistic message
+          
+          // Modify optimistic message on timeout instead of removing
+          setMessages(prev => prev.map(msg => 
+            msg.image?.id === tempId 
+            ? { ...msg, image: { ...msg.image!, isLoading: false, error: `Upload timed out for ${file.name}.` } } 
+            : msg
+          ));
+
           const errorMsg = `Upload timed out for ${file.name}. Please try again.`;
-          // Add error to chat via handleErrorEvent or directly if more context needed for timeout
-          const timeoutError: MessageType = { role: 'assistant', content: errorMsg, timestamp: Date.now(), isError: true };
-          setMessages(prev => [...prev, timeoutError]);
-          setUploadProgress(0);
-          reject(new Error(errorMsg));
-        }, 30000); 
+          // The message is now part of the image item, but we can also add a general assistant message if desired.
+          // For now, let's rely on the error status on the image item.
+          // const timeoutError: MessageType = { role: 'assistant', content: errorMsg, timestamp: Date.now(), isError: true };
+          // setMessages(prev => [...prev, timeoutError]);
+          setUploadProgress(0); // Reset progress bar
+          reject(new Error(errorMsg)); // Still reject the promise
+        }, 60000); // Increased timeout to 60 seconds
 
         // Backend sends: { image_hash: string; filename: string; session_id: string, message?: string, position?: number }
         const successListener = (data: { image_hash: string; filename: string; session_id: string, message?: string, position?: number }) => {

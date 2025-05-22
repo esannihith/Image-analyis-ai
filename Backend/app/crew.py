@@ -352,6 +352,7 @@ class ImageAnalysisCrew():
             tasks=self.tasks,   
             process=Process.hierarchical, 
             manager_llm=self.llm, 
+            # Explicitly set manager_agent
             verbose=True # Changed from verbose=2 to verbose=True
             # memory=True # Consider if you want memory for the crew
         )

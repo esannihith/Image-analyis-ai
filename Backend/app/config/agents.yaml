@@ -137,7 +137,7 @@ query_decomposer:
   # tools: []  # This was already empty or commented, which is correct
   llm: true
   verbose: true
-  allow_delegation: true
+  allow_delegation: false
 
 response_synthesizer:
   role: >

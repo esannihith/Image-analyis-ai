@@ -117,9 +117,19 @@ class SessionStore:
         image_hash = hashlib.sha256(image_data).hexdigest()
         metadata_key = f"metadata:{image_hash}"
         
+        # Serialize complex metadata values to JSON strings
+        serialized_metadata = {}
+        for key, value in metadata.items():
+            if isinstance(value, (dict, list)):
+                serialized_metadata[key] = json.dumps(value)
+            elif value is None:
+                serialized_metadata[key] = '' # Store None as empty string or choose a convention
+            else:
+                serialized_metadata[key] = str(value) # Ensure all other values are strings
+
         with conn.pipeline() as pipe:
             # Store metadata globally by hash
-            pipe.hset(metadata_key, mapping=metadata)
+            pipe.hset(metadata_key, mapping=serialized_metadata) # Use the serialized metadata
             pipe.expire(metadata_key, self.session_ttl * 2)
             
             # Link to session
@@ -161,7 +171,15 @@ class SessionStore:
                 severity="warning"
             )
             
-        return metadata
+        # Deserialize JSON string values back to Python objects
+        deserialized_metadata = {}
+        for key, value in metadata.items():
+            try:
+                # Attempt to parse value as JSON; if it fails, keep original string
+                deserialized_metadata[key] = json.loads(value)
+            except (json.JSONDecodeError, TypeError):
+                deserialized_metadata[key] = value # Keep as is if not a valid JSON string
+        return deserialized_metadata
 
     @_handle_errors
     def get_session_images(self, session_id: str) -> List[Dict[str, Any]]:
@@ -189,11 +207,18 @@ class SessionStore:
                 pipe.hgetall(f"metadata:{h}")
             results = pipe.execute()
         
-        return [
-            {"hash": h, **data}
-            for h, data in zip(unique_hashes, results)
-            if data
-        ]
+        # Deserialize JSON string values in batch results
+        processed_results = []
+        for h, data in zip(unique_hashes, results):
+            if data:
+                deserialized_data = {}
+                for key, value in data.items():
+                    try:
+                        deserialized_data[key] = json.loads(value)
+                    except (json.JSONDecodeError, TypeError):
+                        deserialized_data[key] = value
+                processed_results.append({"hash": h, **deserialized_data})
+        return processed_results
 
     @_handle_errors
     def update_session_context(
