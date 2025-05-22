@@ -1,0 +1,120 @@
+CoreTools:
+  SessionRetrievalTool:
+    description: "Retrieves and stores session-specific data including image sequences, interaction context, and general context via multiple actions."
+    config:
+      max_history_depth: 10 # Used as default limit for actions like get_last_n_images
+  ContextChainBuilder:
+    description: "Constructs and maintains a chain of conversation context for a session, storing and formatting interaction history."
+    config:
+      context_depth: 3
+      max_context_size: 4096
+
+MetadataTools:
+  MetadataValidator:
+    description: "Validates EXIF/IPTC/XMP metadata against schema and defined rules."
+    config:
+      strict_mode: true
+      allow_partial: false
+  FormatNormalizer:
+    description: "Normalizes various metadata formats (dates, coordinates, units) to a consistent standard for downstream processing."
+    config:
+      output_format: "exif_v2.3_processed" # Indicates processed fields might be in a 'processed_data' sub-dict
+      timezone: "UTC"
+      coordinate_precision: 6
+
+GeospatialTools:
+  ReverseGeocoder:
+    description: "Converts GPS coordinates (latitude, longitude) to human-readable addresses."
+    config:
+      provider: "nominatim" # Default to Nominatim (free, no API key)
+      # api_key: ${GEOCODING_API_KEY_GOOGLE} # Example if using Google
+      fallback_providers: [] 
+  LandmarkMatcher:
+    description: "Identifies known landmarks or points of interest near given GPS coordinates."
+    config:
+      # database: "wikidata" # Placeholder, actual implementation might use an API or local data
+      search_radius: 5000 # Meters
+      min_prominence: 5 # Arbitrary scale for how "major" a landmark should be
+  DistanceCalculator:
+    description: "Calculates the distance between two or more sets of GPS coordinates."
+    config:
+      unit_system: "metric" # "metric" (km) or "imperial" (miles)
+      precision: 2 # Decimal places for the result
+
+TechnicalTools:
+  EXIFDecoder:
+    description: "Parses comprehensive EXIF, IPTC, XMP, and other metadata from image files using pyexiv2 and hachoir."
+    config:
+      decode_thumbnail: false
+      strict_parsing: false # Be more lenient to extract as much as possible
+      hachoir_fallback_enabled: true
+  LensDatabase:
+    description: "Provides known characteristics and information about camera lenses based on metadata (e.g., lens name, make, model)."
+    config:
+      # storage: "json_file" # Indicated we'd use a bundled JSON
+      # json_file_path: "config/lens_data.json" # Path relative to app root
+      cache_ttl: 7200 
+      
+AnalyticsTools:
+  MatrixComparator:
+    description: "Compares multiple images across specified technical metadata parameters, presenting findings in a matrix and calculating a weighted deviation score."
+    config:
+      comparison_fields: ["iso", "aperture_value", "shutter_speed_value", "focal_length_35mm", "exposure_compensation"] # Expanded default fields
+      scoring_method: "weighted" # Lower score means closer to set average
+      default_id_field: "hash"
+
+ResponseTools:
+  VisualizationCreator:
+    description: "Suggests appropriate visualization types (e.g., chart, map, table) based on the nature of the data to be presented."
+    config:
+      allowed_formats: ["table", "bar_chart", "line_chart", "map", "timeline", "text_summary"]
+      max_suggestions: 2
+      keywords_for_map: ["location", "gps", "latitude", "longitude", "address", "place", "coordinates", "geospatial", "where"]
+      keywords_for_timeline: ["timestamp", "date", "event", "sequence", "history", "chronology", "when", "time"]
+      keywords_for_chart: ["compare", "trend", "distribution", "value", "amount", "count", "percentage", "iso", "aperture", "shutter_speed", "focal_length", "measurement", "statistic", "parameter", "setting"]
+
+ErrorTools:
+  ErrorClassifier:
+    description: "Categorizes system errors and suggests potential causes or affected components based on error messages."
+    config:
+      severity_levels: ["critical", "error", "warning", "info"]
+      default_severity: "error"
+      # notification_channels: ["logs"] # Simplified
+  SuggestionGenerator:
+    description: "Provides alternative actions, queries, or troubleshooting steps when an operation fails or a query cannot be directly answered."
+    config:
+      max_suggestions: 3
+      context_awareness_depth: 2 # How many previous turns to consider for relevant suggestions
+
+TemporalTools:
+  DateTimeCalculator:
+    description: "Performs calculations and conversions on datetime objects extracted from image metadata, including formatting and time differences."
+    config:
+      default_output_format: "YYYY-MM-DD HH:mm:ss Z" # Example: 2023-04-01 14:30:00 UTC
+      default_input_timezone: "UTC" # Assume input datetimes are UTC if not specified
+  SolarPositionAnalyzer:
+    description: "Calculates the sun's position (azimuth, elevation) and related solar events (e.g., golden hour, blue hour) for a given time and location."
+    config:
+      precision: 2 # Decimal places for solar coordinates
+      # model: "spherical" # Calculation model
+      event_buffer_minutes: 30 # Buffer for defining start/end of golden/blue hour
+  SequenceDetector:
+    description: "Detects if a set of images forms a temporal sequence (e.g., timelapse, burst) based on timestamps and other metadata."
+    config:
+      max_gap_seconds: 3600 # Max time gap between images to be considered part of the same sequence
+      min_sequence_length: 3 # Minimum number of images to form a sequence
+      check_exposure_consistency: false # Optionally check if exposure settings are similar for a sequence
+
+EnvironmentalTools: # New Category
+  WeatherAPIClientTool:
+    description: "Fetches historical weather data for a specific location and date using the Visual Crossing API."
+    config:
+      api_key: ${VISUAL_CROSSING_API_KEY} # Load from environment variable
+      base_url: "https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/timeline/"
+      default_elements: [ # Curated list for relevance
+            "datetime", "temp", "feelslike", "humidity", "precip", 
+            "precipprob", "preciptype", "snow", "windspeed", "winddir", 
+            "cloudcover", "visibility", "sunrise", "sunset", "moonphase",
+            "conditions", "description" 
+        ]
+      default_unit_group: "metric"

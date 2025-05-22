@@ -1,0 +1,15 @@
+{
+  "make_db": "Canon",
+  "model_db": "EF24-70mm f/2.8L II USM",
+  "search_keys": ["ef2470mmf28liiusm", "canon2470"],
+  "mount": "Canon EF",
+  "focal_length_range_mm": [24, 70],
+  "max_aperture_at_min_focal": 2.8,
+  "max_aperture_at_max_focal": 2.8,
+  "min_aperture": 22,
+  "elements": 18,
+  "groups": 13,
+  "filter_diameter_mm": 82,
+  "optical_image_stabilization": false,
+  "weight_g": 805
+}

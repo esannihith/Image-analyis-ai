@@ -1,114 +1,178 @@
+# tasks.yaml
 ---
-extract_metadata:
-  description: Extracts EXIF, IPTC, and XMP metadata from the provided image file, including timestamp, GPS coordinates, camera make/model, ISO, aperture, shutter speed, and focal length.
-  expected_output: '{"metadata": {"exif": <dict>, "iptc": <dict>, "xmp": <dict>, "processed_data": <dict>}, "success": <bool>, "error": <str|null>}'
-  async_execution: false
-  agent: MetadataExtractionAgent
+tasks:
+  # --------------------------------------------------------------------------
+  # Core Initial Processing Tasks (Likely chained)
+  # --------------------------------------------------------------------------
+  - name: process_new_user_query_and_resolve_context
+    description: |
+      The initial entry point for a new user query.
+      1. Understand the user's immediate query.
+      2. Use SessionRetrievalTool to get image interaction context (aliases, sequence, focus).
+      3. Use its LLM to resolve image references in the query (e.g., "this image" -> image_hash_123).
+      4. Build/update the conversation context string using ContextChainBuilder.
+      5. If the query is simple and directly answerable with session context, answer it.
+      6. Otherwise, identify the primary analytical task(s) needed and prepare for delegation.
+    agent: SessionContextManager 
+    expected_output: |
+      A JSON string containing:
+      - "resolved_query": The user's query with image references replaced by unique IDs.
+      - "identified_image_ids": A list of unique image IDs relevant to the query.
+      - "conversation_context_summary": A brief summary of the current conversation state.
+      - "next_action": A string indicating 'answer_directly', 'delegate_to_task', or 'decompose_query'.
+      - "direct_answer": (Optional) The answer if 'next_action' is 'answer_directly'.
+      - "delegation_task_name": (Optional) The name of the single task to delegate to.
+      - "delegation_input": (Optional) A dictionary of inputs for the delegation task.
 
-cache_session_metadata:
-  description: Stores extracted metadata from the image file in the session store using the provided session ID for subsequent queries.
-  expected_output: '{"success": <bool>, "session_id": <str>, "error": <str|null>}'
-  async_execution: false
-  agent: MetadataCacheAgent
-  context:
-    - extract_metadata
+  - name: extract_base_image_metadata
+    description: "Extracts all available raw EXIF, IPTC, and XMP metadata for specified image(s). This is a foundational step."
+    agent: TechnicalAnalyzer # Uses EXIFDecoderTool primarily for this task.
+    expected_output: |
+      A JSON string representing a dictionary where keys are image IDs (e.g., hashes) and values are 
+      comprehensive raw metadata objects (dictionaries) extracted for each image.
+      Example: {"image_hash_1": {"EXIF": {...}, "IPTC": {...}}, "image_hash_2": {...}}
 
-normalize_prompt:
-  description: Normalizes the user query by resolving ambiguous references (e.g., 'this image' to a specific image ID) using the PromptEnrichmentAgent.
-  expected_output: '{"normalized_query": <str>, "resolved_image_ids": <list>, "success": <bool>, "error": <str|null>}'
-  async_execution: false
-  agent: PromptEnrichmentAgent
-  context:
-    - cache_session_metadata
+  - name: validate_and_normalize_metadata
+    description: "Validates extracted raw metadata, normalizes key fields (dates, units, etc.), and generates content hashes for specified image(s)."
+    agent: MetadataDigestor # Uses MetadataValidatorTool, FormatNormalizerTool, HashGeneratorTool
+    expected_output: |
+      A JSON string representing a dictionary where keys are image IDs. Each value is a dictionary 
+      containing the 'image_hash' (content hash) and a 'processed_metadata' object. 
+      The 'processed_metadata' includes validated and normalized fields, alongside the original (or a subset of) metadata.
+      Example: {"image_id_1": {"image_hash": "sha256_...", "processed_metadata": {"iso": 100, "aperture_value": 2.8, ...}}}
 
-filter_statistics:
-  description: Analyzes cached metadata for filtering queries (e.g., 'How many photos were shot at 1/60s?') or common settings (e.g., 'What camera settings should I use?') and computes statistics.
-  expected_output: '{"summary": <str>, "statistics": <dict>, "image_ids": <list>, "success": <bool>, "error": <str|null>}'
-  async_execution: false
-  agent: FilterAndStatsAgent
-  context:
-    - cache_session_metadata
-    - normalize_prompt
+  # --------------------------------------------------------------------------
+  # Specific Analysis Tasks (Can be called by QueryDecomposer or SessionContextManager)
+  # --------------------------------------------------------------------------
+  - name: analyze_image_temporal_properties
+    description: "Analyzes temporal aspects of specified image(s), including capture date/time, time of day, day/night, duration since capture, and solar position (e.g., golden hour)."
+    agent: TemporalSpecialist
+    expected_output: |
+      A JSON string containing a list of objects, one for each image analyzed. Each object includes:
+      - "image_id": The unique identifier of the image.
+      - "capture_datetime_utc": Formatted capture datetime in UTC.
+      - "time_of_day_category": e.g., "Morning", "Afternoon", "Evening", "Night".
+      - "age_of_image": Human-readable string (e.g., "3 months ago").
+      - "solar_analysis": (Optional) Object with "is_golden_hour", "is_blue_hour", "sun_azimuth", "sun_elevation".
+      - "other_temporal_notes": (Optional) Any other relevant temporal observations.
 
-compare_metadata:
-  description: Compares metadata (ISO, aperture, shutter speed) between two or more images referenced in the query (e.g., 'Compare lighting in this photo to the first one').
-  expected_output: '{"comparison": <str>, "differences": <dict>, "image_ids": <list>, "success": <bool>, "error": <str|null>}'
-  async_execution: false
-  agent: ComparisonAgent
-  context:
-    - cache_session_metadata
-    - normalize_prompt
+  - name: analyze_image_geospatial_properties
+    description: "Analyzes geospatial aspects of specified image(s) with GPS data. Includes reverse geocoding to address, landmark identification, and GPS coordinate presentation."
+    agent: GeospatialEngine
+    expected_output: |
+      A JSON string containing a list of objects, one for each image analyzed. Each object includes:
+      - "image_id": The unique identifier of the image.
+      - "gps_coordinates": {"latitude": float, "longitude": float}.
+      - "address": (Optional) Human-readable address from reverse geocoding.
+      - "identified_landmarks": (Optional) List of nearby landmarks, each with "name" and "distance".
+      - "geospatial_summary": A brief textual summary of the location.
 
-reverse_geocode_location:
-  description: Extracts GPS data from cached metadata for the specified image and session ID, converting it to a human-readable location name.
-  expected_output: '{"location": <str>, "success": <bool>, "error": <str|null>}'
-  async_execution: false
-  agent: ReverseGeocodingAgent
-  context:
-    - extract_metadata
-    - cache_session_metadata
+  - name: analyze_image_technical_details
+    description: "Provides detailed technical photography parameters for specified image(s), including camera/lens info, exposure settings (ISO, aperture, shutter speed), resolution, flash usage, and software tags."
+    agent: TechnicalAnalyzer
+    expected_output: |
+      A JSON string containing a list of objects, one for each image analyzed. Each object includes:
+      - "image_id": The unique identifier of the image.
+      - "camera_make_model": String (e.g., "Sony ILCE-7M3").
+      - "lens_info": String (e.g., "FE 24-70mm F2.8 GM").
+      - "exposure_settings": {"iso": int, "aperture": float, "shutter_speed": str, "focal_length": str, "exposure_compensation": str}.
+      - "resolution": {"width": int, "height": int}.
+      - "flash_used": Boolean.
+      - "software": (Optional) String identifying editing software.
+      - "technical_summary": A brief textual summary of key settings.
 
-enrich_named_place:
-  description: Fetches a concise summary or Wikipedia snippet for the location derived from reverse geocoding, for queries like 'Tell me about this monument.'
-  expected_output: '{"enrichment_text": <str>, "source_url": <str>, "success": <bool>, "error": <str|null>}'
-  async_execution: false
-  agent: NamedPlaceEnrichmentAgent
-  context:
-    - reverse_geocode_location
+  - name: get_environmental_context
+    description: "Fetches historical weather conditions (temperature, precipitation, wind, cloud cover, etc.) for specified image(s) based on their capture date and location."
+    agent: EnvironmentalAnalyst
+    expected_output: |
+      A JSON string containing a list of objects, one for each image queried. Each object includes:
+      - "image_id": The unique identifier of the image.
+      - "queried_date": The date for which weather was fetched.
+      - "queried_location": {"latitude": float, "longitude": float}.
+      - "weather_data": A dictionary of weather parameters (e.g., "temp", "conditions", "windspeed", "precipitation", "sunrise", "sunset").
+      - "error": (Optional) Error message if data could not be fetched for this image.
 
-lookup_weather:
-  description: Retrieves weather conditions (temperature, cloud cover, rainfall) for the timestamp and GPS location from the image's metadata using the Visual Crossing Timeline Weather API.
-  expected_output: '{"weather_report": <str>, "weather_data": <dict>, "success": <bool>, "error": <str|null>}'
-  async_execution: false
-  agent: WeatherDataAgent
-  context:
-    - extract_metadata
-    - cache_session_metadata
-    - reverse_geocode_location
+  - name: compare_images_technical_metadata
+    description: "Compares two or more specified images based on their technical metadata parameters (e.g., ISO, aperture, shutter speed, focal length). Provides a comparison matrix and deviation scores."
+    agent: ComparativeEngine # Uses MatrixComparatorTool
+    expected_output: |
+      A JSON string (output from MatrixComparatorTool) containing:
+      - "success": Boolean.
+      - "comparison_matrix": A list of dictionaries, each representing an image and its values for the compared fields (also includes normalized values and deviations if scored).
+      - "image_scores": (Optional) A list of objects, each with "image_id" and "score", if scoring was performed.
+      - "summary": A textual summary of the comparison.
+      - "logs": (Optional) Logging information from the tool.
 
-export_csv:
-  description: Serializes all cached metadata for the session ID into CSV format and generates a secure download link.
-  expected_output: '{"download_link": <str>, "csv": <str>, "success": <bool>, "error": <str|null>}'
-  async_execution: false
-  agent: CSVExportAgent
-  context:
-    - cache_session_metadata
+  - name: compare_images_temporal_aspects
+    description: "Compares temporal aspects of two or more images, such as identifying which was taken first or the time difference between them."
+    agent: TemporalSpecialist # Uses DateTimeCalculatorTool
+    expected_output: |
+      A JSON string containing:
+      - "comparison_type": e.g., "order_assessment", "time_difference".
+      - "image_order": (Optional) List of image_ids sorted by capture time.
+      - "time_difference_seconds": (Optional) Integer, time difference in seconds between two specified images.
+      - "same_day_check": (Optional) {"images_compared": [id1, id2], "are_same_day": boolean}.
+      - "summary": A textual summary of the temporal comparison.
+  
+  - name: compare_images_geospatial_aspects
+    description: "Compares geospatial aspects of two or more images, such as whether they were taken at the same location or the distance between their capture locations."
+    agent: GeospatialEngine # Uses DistanceCalculatorTool, ReverseGeocoderTool
+    expected_output: |
+      A JSON string containing:
+      - "images_compared": List of image_ids.
+      - "distance_between_meters": (Optional) Float, if two locations are compared.
+      - "same_location_assessment": (Optional) {"is_same_general_location": boolean, "criteria": "e.g., within X meters or same geocoded address"}.
+      - "location_details": List of objects, each with "image_id" and its "address" or "gps_coordinates".
+      - "summary": A textual summary of the geospatial comparison.
 
-assemble_response:
-  description: Combines outputs from relevant agents, validates them using CriticAgent, and uses the Groq LLM to generate a final response for the user query.
-  expected_output: '{"final_response": <str>, "success": <bool>, "error": <str|null>}'
-  async_execution: false
-  agent: OrchestrationManager
-  context:
-    - extract_metadata
-    - reverse_geocode_location
-    - filter_statistics
-    - compare_metadata
-    - enrich_named_place
-    - lookup_weather
-    - export_csv
+  - name: detect_image_sequences
+    description: "Analyzes a set of images to detect if they form a temporal sequence (e.g., timelapse, burst) based on their timestamps."
+    agent: TemporalSpecialist # Uses SequenceDetectorTool
+    expected_output: |
+      A JSON string containing:
+      - "image_ids_analyzed": List of image_ids.
+      - "detected_sequences": A list of sequences, where each sequence is a list of image_ids.
+      - "sequence_count": Integer, number of sequences found.
+      - "summary": A textual summary of findings (e.g., "A burst sequence of 5 images was detected starting from image_X.").
 
-extract_datetime:
-  description: Extracts the timestamp (date and time) from the EXIF metadata of the provided image.
-  expected_output: '{"datetime": <str>, "success": <bool>, "error": <str|null>}'
-  async_execution: false
-  agent: MetadataExtractionAgent
-  context:
-    - extract_metadata
+  # --------------------------------------------------------------------------
+  # Complex Query Handling & Response Generation
+  # --------------------------------------------------------------------------
+  - name: decompose_complex_query
+    description: "Analyzes a complex user query, breaks it down into multiple sub-tasks for different specialist agents, and determines the order of execution and data dependencies."
+    agent: QueryDecomposer
+    expected_output: |
+      A JSON string representing a structured plan. The plan should include:
+      - "original_query": The user's query.
+      - "overall_goal": A summary of what the user wants to achieve.
+      - "sub_tasks": A list of objects, each representing a sub-task. Each sub-task object should include:
+        - "task_id": A unique identifier for this sub-task step.
+        - "task_name": The name of the task to be executed (from this tasks.yaml file).
+        - "agent_assigned": The agent responsible for this task_name.
+        - "input_parameters": A dictionary of specific inputs needed for this task_name (e.g., list of image_ids, specific metadata fields).
+        - "dependencies": (Optional) A list of task_ids that must be completed before this sub-task can start.
+        - "purpose": A brief description of why this sub-task is needed.
+      - "execution_summary": A brief note on the planned approach.
 
-extract_location:
-  description: Extracts GPS coordinates from the image metadata and converts them to a human-readable location name.
-  expected_output: '{"location": <str>, "success": <bool>, "error": <str|null>}'
-  async_execution: false
-  agent: ReverseGeocodingAgent
-  context:
-    - extract_metadata
-    - cache_session_metadata
+  - name: synthesize_response_from_analyses
+    description: "Gathers results from one or more analytical tasks, synthesizes them into a coherent, user-friendly natural language response, and suggests visualizations if applicable."
+    agent: ResponseSynthesizer
+    expected_output: |
+      A JSON string containing:
+      - "final_answer_text": The complete, synthesized natural language response for the user.
+      - "visualization_suggestions": (Optional) A list of suggested visualization types (e.g., ["table", "map"]) based on VisualizationCreatorTool's output.
+      - "sources_consulted": (Optional) A list of task names or data sources used to formulate the answer.
+      - "confidence_level": (Optional) A qualitative assessment (e.g., "High", "Medium") if applicable.
 
-handle_fallback:
-  description: Handles queries outside metadata analysis scope (e.g., 'Tell me a joke') with a predefined response.
-  expected_output: '{"fallback_message": <str>, "success": <bool>, "error": <str|null>}'
-  async_execution: false
-  agent: FallBackAgent
-  context:
-    - normalize_prompt
+  # --------------------------------------------------------------------------
+  # Fallback & Error Handling Task
+  # --------------------------------------------------------------------------
+  - name: handle_unresolved_query_or_error
+    description: "Manages situations where a query cannot be understood, a task fails, or necessary data is missing. Provides a helpful explanation and suggestions to the user."
+    agent: FallbackHandler
+    expected_output: |
+      A JSON string containing:
+      - "user_facing_message": A clear, empathetic message explaining the issue or limitation.
+      - "error_summary": (Optional) A brief internal summary of the error if applicable.
+      - "suggested_actions": (Optional) A list of actionable suggestions for the user (e.g., "Try rephrasing your question.", "Ensure the image has GPS data for location queries.").
+      - "log_reference_id": (Optional) An ID that can be used to trace detailed logs if needed.

@@ -1,312 +1,410 @@
-from crewai import Agent, Crew, Process, Task
-from crewai.project import CrewBase, agent, crew, task
-from app.tools.extraction_tool import ImageMetadataExtractionTool
-from app.tools.metadata_cache_tool import MetadataCacheTool
-from app.tools.prompt_enrichment_tool import PromptEnrichmentTool
-from app.tools.filter_and_stats_tool import FilterAndStatsTool
-from app.tools.comparison_tool import ComparisonTool
-from app.tools.reverse_geocoding_tool import ReverseGeocodingTool
-from app.tools.named_place_enrichment_tool import NamedPlaceEnrichmentTool
-from app.tools.weather_data_tool import WeatherDataTool
-from app.tools.csv_export_tool import CSVExportTool
-from app.store.session_store import SessionStore
-from pathlib import Path
+from crewai import Agent, Crew, Process, Task, CrewBase
+from crewai.project import agent, crew, task
 from langchain_groq import ChatGroq
+from pathlib import Path
 import os
+import yaml
+from typing import List, Dict, Any, Optional
+
+# Import ONLY the tools we are keeping/adding
+from app.tools.session_retrieval_tool import SessionRetrievalTool
+from app.tools.context_chain_builder import ContextChainBuilderTool
+from app.tools.metadata_validator import MetadataValidatorTool
+from app.tools.format_normalizer import FormatNormalizerTool
+from app.tools.datetime_calculator import DateTimeCalculatorTool
+from app.tools.solar_position_analyzer import SolarPositionAnalyzerTool
+from app.tools.sequence_detector import SequenceDetectorTool
+from app.tools.reverse_geocoder import ReverseGeocoderTool
+from app.tools.landmark_matcher import LandmarkMatcherTool
+from app.tools.distance_calculator import DistanceCalculatorTool
+from app.tools.exif_decoder import EXIFDecoderTool
+from app.tools.lens_database import LensDatabaseTool
+from app.tools.matrix_comparator import MatrixComparatorTool
+from app.tools.visualization_creator import VisualizationCreatorTool
+from app.tools.error_classifier import ErrorClassifierTool
+from app.tools.suggestion_generator import SuggestionGeneratorTool
+from app.tools.weather_api_client_tool import WeatherAPIClientTool
+
+# Import SessionStore if tools need it passed during instantiation
+from app.store.session_store import SessionStore
+
+from dotenv import load_dotenv
+load_dotenv()
+
+def _get_config_item_by_name(config_list: List[Dict[str, Any]], name_to_find: str) -> Optional[Dict[str, Any]]:
+    """Helper to find a specific config block by its 'name'."""
+    if not isinstance(config_list, list):
+        # print(f"Warning: Expected a list of configs, but got {type(config_list)}. Cannot find '{name_to_find}'.")
+        return None
+    for item in config_list:
+        if isinstance(item, dict) and item.get("name") == name_to_find:
+            return item
+    # print(f"Warning: Config for '{name_to_find}' not found in the provided list.")
+    return None
 
 @CrewBase
-class ImageMetadataConversationalAssistantCrew():
-    """ImageMetadataConversationalAssistant crew"""
-    agents_config_path = Path('app/config/agents.yaml')
-    tasks_config_path  = Path('app/config/tasks.yaml')
+class ImageAnalysisCrew():
+    agents_config_path = Path(__file__).parent / "config/agents.yaml"
+    tasks_config_path = Path(__file__).parent / "config/tasks.yaml"
 
-    llm = ChatGroq(
-        api_key=os.environ.get("GROQ_API_KEY"),
-        model = "groq/llama-3.3-70b-versatile",
-        max_tokens=4096,
-        temperature=0.7,
+    def __init__(self):
+        # Load YAML configurations once
+        with open(self.agents_config_path, 'r', encoding='utf-8') as f:
+            self.agents_yaml_config = yaml.safe_load(f)
+        with open(self.tasks_config_path, 'r', encoding='utf-8') as f:
+            self.tasks_yaml_config = yaml.safe_load(f)
+
+        # Initialize LLM
+        # Ensure GROQ_API_KEY is set in your environment
+        self.llm = ChatGroq(
+            groq_api_key=os.getenv("GROQ_API_KEY"),
+            model_name="llama3-8b-8192", # Or your preferred Groq model
+            temperature=0.2, 
+        )
+        # Initialize SessionStore
+        # Ensure REDIS_URL is set in your environment
+        self.session_store = SessionStore()
+
+    def _get_agent_config(self, agent_name: str) -> Dict[str, Any]:
+        """Safely retrieves an agent's configuration by name."""
+        for category_list in self.agents_yaml_config.values():
+            if isinstance(category_list, list):
+                config = _get_config_item_by_name(category_list, agent_name)
+                if config:
+                    return config
+        raise ValueError(f"Agent configuration for '{agent_name}' not found in {self.agents_config_path}")
+
+    def _get_task_config(self, task_name: str) -> Dict[str, Any]:
+        """Safely retrieves a task's configuration by name."""
+        tasks_list = self.tasks_yaml_config.get("tasks", [])
+        config = _get_config_item_by_name(tasks_list, task_name)
+        if config:
+            return config
+        raise ValueError(f"Task configuration for '{task_name}' not found in {self.tasks_config_path}")
+
+    # --- Agent Definitions ---
+    @agent
+    def session_context_manager(self) -> Agent:
+        config = self._get_agent_config("SessionContextManager")
+        return Agent(
+            role=config['role'],
+            goal=config['goal'],
+            backstory=config['backstory'],
+            tools=[
+                SessionRetrievalTool(session_store=self.session_store),
+                ContextChainBuilderTool(session_store=self.session_store)
+            ],
+            llm=self.llm if config.get('llm', False) else None,
+            verbose=config.get('verbose', True),
+            allow_delegation=config.get('allow_delegation', False),
+            max_iter=config.get('max_iter', 15)
         )
 
     @agent
-    def MetadataExtractionAgent(self) -> Agent:
+    def metadata_digestor(self) -> Agent:
+        config = self._get_agent_config("MetadataDigestor")
         return Agent(
-            config=self.agents_config['MetadataExtractionAgent'],
-            tools=[ImageMetadataExtractionTool()],
+            role=config['role'],
+            goal=config['goal'],
+            backstory=config['backstory'],
+            tools=[
+                MetadataValidatorTool(),
+                FormatNormalizerTool(),
+            ],
+            llm=self.llm if config.get('llm', False) else None,
+            verbose=config.get('verbose', True),
+            allow_delegation=config.get('allow_delegation', False),
+            max_iter=config.get('max_iter', 15)
         )
 
     @agent
-    def MetadataCacheAgent(self) -> Agent:
+    def temporal_specialist(self) -> Agent:
+        config = self._get_agent_config("TemporalSpecialist")
         return Agent(
-            config=self.agents_config['MetadataCacheAgent'],
-            tools=[MetadataCacheTool()],
+            role=config['role'],
+            goal=config['goal'],
+            backstory=config['backstory'],
+            tools=[
+                DateTimeCalculatorTool(),
+                SolarPositionAnalyzerTool(),
+                SequenceDetectorTool()
+            ],
+            llm=self.llm if config.get('llm', False) else None,
+            verbose=config.get('verbose', True),
+            allow_delegation=config.get('allow_delegation', False),
+            max_iter=config.get('max_iter', 15)
         )
 
     @agent
-    def PromptEnrichmentAgent(self) -> Agent:
+    def geospatial_engine(self) -> Agent:
+        config = self._get_agent_config("GeospatialEngine")
         return Agent(
-            config=self.agents_config['PromptEnrichmentAgent'],
-            tools=[PromptEnrichmentTool()],
-            llm=self.llm,
+            role=config['role'],
+            goal=config['goal'],
+            backstory=config['backstory'],
+            tools=[
+                ReverseGeocoderTool(),
+                LandmarkMatcherTool(),
+                DistanceCalculatorTool()
+            ],
+            llm=self.llm if config.get('llm', False) else None,
+            verbose=config.get('verbose', True),
+            allow_delegation=config.get('allow_delegation', False),
+            max_iter=config.get('max_iter', 15)
         )
 
     @agent
-    def FilterAndStatsAgent(self) -> Agent:
+    def technical_analyzer(self) -> Agent:
+        config = self._get_agent_config("TechnicalAnalyzer")
         return Agent(
-            config=self.agents_config['FilterAndStatsAgent'],
-            tools=[FilterAndStatsTool()],
+            role=config['role'],
+            goal=config['goal'],
+            backstory=config['backstory'],
+            tools=[
+                EXIFDecoderTool(),
+                LensDatabaseTool(),
+            ],
+            llm=self.llm if config.get('llm', False) else None,
+            verbose=config.get('verbose', True),
+            allow_delegation=config.get('allow_delegation', False),
+            max_iter=config.get('max_iter', 15)
+        )
+    
+    @agent
+    def environmental_analyst(self) -> Agent:
+        config = self._get_agent_config("EnvironmentalAnalyst")
+        return Agent(
+            role=config['role'],
+            goal=config['goal'],
+            backstory=config['backstory'],
+            tools=[WeatherAPIClientTool()],
+            llm=self.llm if config.get('llm', False) else None,
+            verbose=config.get('verbose', True),
+            allow_delegation=config.get('allow_delegation', False),
+            max_iter=config.get('max_iter', 15)
         )
 
     @agent
-    def ComparisonAgent(self) -> Agent:
+    def comparative_engine(self) -> Agent:
+        config = self._get_agent_config("ComparativeEngine")
         return Agent(
-            config=self.agents_config['ComparisonAgent'],
-            tools=[ComparisonTool()],
+            role=config['role'],
+            goal=config['goal'],
+            backstory=config['backstory'],
+            tools=[MatrixComparatorTool()],
+            llm=self.llm if config.get('llm', False) else None,
+            verbose=config.get('verbose', True),
+            allow_delegation=config.get('allow_delegation', False),
+            max_iter=config.get('max_iter', 15)
         )
 
     @agent
-    def ReverseGeocodingAgent(self) -> Agent:
+    def query_decomposer(self) -> Agent:
+        config = self._get_agent_config("QueryDecomposer")
         return Agent(
-            config=self.agents_config['ReverseGeocodingAgent'],
-            tools=[ReverseGeocodingTool()],
+            role=config['role'],
+            goal=config['goal'],
+            backstory=config['backstory'],
+            tools=[],
+            llm=self.llm if config.get('llm', False) else None,
+            verbose=config.get('verbose', True),
+            allow_delegation=config.get('allow_delegation', True),
+            max_iter=config.get('max_iter', 15)
         )
 
     @agent
-    def NamedPlaceEnrichmentAgent(self) -> Agent:
+    def response_synthesizer(self) -> Agent:
+        config = self._get_agent_config("ResponseSynthesizer")
         return Agent(
-            config=self.agents_config['NamedPlaceEnrichmentAgent'],
-            tools=[NamedPlaceEnrichmentTool()],
+            role=config['role'],
+            goal=config['goal'],
+            backstory=config['backstory'],
+            tools=[VisualizationCreatorTool()],
+            llm=self.llm if config.get('llm', False) else None,
+            verbose=config.get('verbose', True),
+            allow_delegation=config.get('allow_delegation', False),
+            max_iter=config.get('max_iter', 15)
         )
 
     @agent
-    def WeatherDataAgent(self) -> Agent:
+    def fallback_handler(self) -> Agent:
+        config = self._get_agent_config("FallbackHandler")
         return Agent(
-            config=self.agents_config['WeatherDataAgent'],
-            tools=[WeatherDataTool()],
+            role=config['role'],
+            goal=config['goal'],
+            backstory=config['backstory'],
+            tools=[
+                ErrorClassifierTool(),
+                SuggestionGeneratorTool()
+            ],
+            llm=self.llm if config.get('llm', False) else None,
+            verbose=config.get('verbose', True),
+            allow_delegation=config.get('allow_delegation', False),
+            max_iter=config.get('max_iter', 15)
         )
-
-    @agent
-    def CSVExportAgent(self) -> Agent:
-        return Agent(
-            config=self.agents_config['CSVExportAgent'],
-            tools=[CSVExportTool()],
-        )
-
-    @agent
-    def FallBackAgent(self) -> Agent:
-        return Agent(
-            config=self.agents_config['FallBackAgent'],
-        )
-
-    @agent
-    def CriticAgent(self) -> Agent:
-        return Agent(
-            config=self.agents_config['CriticAgent'],
-            llm=self.llm,
-        )
-
-    @agent
-    def OrchestrationManager(self) -> Agent:
-        return Agent(
-            config=self.agents_config['OrchestrationManager'],
-            llm=self.llm,
-        )
-
-
+    
+    # --- Task Definitions ---
     @task
-    def extract_metadata(self) -> Task:
+    def process_new_user_query_and_resolve_context(self) -> Task:
+        config = self._get_task_config("process_new_user_query_and_resolve_context")
         return Task(
-            config=self.tasks_config['extract_metadata'],
-            output_file='metadata.json',
+            description=config['description'],
+            expected_output=config['expected_output'],
+            agent=self.session_context_manager() # Call the agent method to get the instance
         )
 
     @task
-    def cache_session_metadata(self) -> Task:
+    def extract_base_image_metadata(self) -> Task:
+        config = self._get_task_config("extract_base_image_metadata")
         return Task(
-            config=self.tasks_config['cache_session_metadata'],
+            description=config['description'],
+            expected_output=config['expected_output'],
+            agent=self.technical_analyzer() 
         )
 
     @task
-    def normalize_prompt(self) -> Task:
+    def validate_and_normalize_metadata(self) -> Task:
+        config = self._get_task_config("validate_and_normalize_metadata")
         return Task(
-            config=self.tasks_config['normalize_prompt'],
+            description=config['description'],
+            expected_output=config['expected_output'],
+            agent=self.metadata_digestor()
         )
 
     @task
-    def filter_statistics(self) -> Task:
+    def analyze_image_temporal_properties(self) -> Task:
+        config = self._get_task_config("analyze_image_temporal_properties")
         return Task(
-            config=self.tasks_config['filter_statistics'],
+            description=config['description'],
+            expected_output=config['expected_output'],
+            agent=self.temporal_specialist()
         )
 
     @task
-    def compare_metadata(self) -> Task:
+    def analyze_image_geospatial_properties(self) -> Task:
+        config = self._get_task_config("analyze_image_geospatial_properties")
         return Task(
-            config=self.tasks_config['compare_metadata'],
+            description=config['description'],
+            expected_output=config['expected_output'],
+            agent=self.geospatial_engine()
         )
 
     @task
-    def reverse_geocode_location(self) -> Task:
+    def analyze_image_technical_details(self) -> Task:
+        config = self._get_task_config("analyze_image_technical_details")
         return Task(
-            config=self.tasks_config['reverse_geocode_location'],
+            description=config['description'],
+            expected_output=config['expected_output'],
+            agent=self.technical_analyzer()
         )
 
     @task
-    def enrich_named_place(self) -> Task:
+    def get_environmental_context(self) -> Task:
+        config = self._get_task_config("get_environmental_context")
         return Task(
-            config=self.tasks_config['enrich_named_place'],
+            description=config['description'],
+            expected_output=config['expected_output'],
+            agent=self.environmental_analyst()
         )
 
     @task
-    def lookup_weather(self) -> Task:
+    def compare_images_technical_metadata(self) -> Task:
+        config = self._get_task_config("compare_images_technical_metadata")
         return Task(
-            config=self.tasks_config['lookup_weather'],
-
+            description=config['description'],
+            expected_output=config['expected_output'],
+            agent=self.comparative_engine()
+        )
+    
+    @task
+    def compare_images_temporal_aspects(self) -> Task:
+        config = self._get_task_config("compare_images_temporal_aspects")
+        return Task(
+            description=config['description'],
+            expected_output=config['expected_output'],
+            agent=self.temporal_specialist()
         )
 
     @task
-    def export_csv(self) -> Task:
+    def compare_images_geospatial_aspects(self) -> Task:
+        config = self._get_task_config("compare_images_geospatial_aspects")
         return Task(
-            config=self.tasks_config['export_csv'],
+            description=config['description'],
+            expected_output=config['expected_output'],
+            agent=self.geospatial_engine()
+        )
+        
+    @task
+    def detect_image_sequences(self) -> Task:
+        config = self._get_task_config("detect_image_sequences")
+        return Task(
+            description=config['description'],
+            expected_output=config['expected_output'],
+            agent=self.temporal_specialist()
         )
 
     @task
-    def assemble_response(self) -> Task:
+    def decompose_complex_query(self) -> Task:
+        config = self._get_task_config("decompose_complex_query")
         return Task(
-            config=self.tasks_config['assemble_response'],
-            llm=self.llm,
+            description=config['description'],
+            expected_output=config['expected_output'],
+            agent=self.query_decomposer()
         )
 
     @task
-    def handle_fallback(self) -> Task:
+    def synthesize_response_from_analyses(self) -> Task:
+        config = self._get_task_config("synthesize_response_from_analyses")
         return Task(
-            config=self.tasks_config['handle_fallback'],
-            llm=self.llm,
+            description=config['description'],
+            expected_output=config['expected_output'],
+            agent=self.response_synthesizer()
         )
-
+    
     @task
-    def extract_datetime(self) -> Task:
+    def handle_unresolved_query_or_error(self) -> Task:
+        config = self._get_task_config("handle_unresolved_query_or_error")
         return Task(
-            config=self.tasks_config['extract_datetime'],
+            description=config['description'],
+            expected_output=config['expected_output'],
+            agent=self.fallback_handler()
         )
-
-    @task
-    def extract_location(self) -> Task:
-        return Task(
-            config=self.tasks_config['extract_location'],
-        )
-
-    # Removed detect_duplicates task as requested
-
+        
     @crew
-    def crew(self) -> Crew:
-        """Creates the ImageMetadataConversationalAssistant crew"""
+    def analysis_crew(self) -> Crew:
         return Crew(
-            agents=self.agents, # Automatically created by the @agent decorator
-            tasks=self.tasks, # Automatically created by the @task decorator
-            process=Process.sequential,
-            verbose=True,
+            agents=self.agents,  # Auto-collected by @agent decorator
+            tasks=self.tasks,    # Auto-collected by @task decorator
+            process=Process.hierarchical, 
+            manager_llm=self.llm, 
+            verbose=2 
+            # memory=True # Consider if you want memory for the crew; requires config if True
         )
-
-    def answer_question(self, session_id: str, image_id: str, question: str) -> str:
+    
+    def run(self, inputs: Dict[str, Any]):
         """
-        CrewAI conversational pipeline: normalize prompt, use Groq LLM for intent detection, run only relevant agents, assemble, and return answer.
-        Returns standardized JSON: {"success": bool, "answer": str, "error": str|None}
+        Executes the crew with the given inputs.
+        Inputs should typically contain 'user_query' and 'session_id'.
         """
-        import json
+        print(f"Crew run called with inputs: {inputs}")
+        if not self.llm:
+            message = "LLM not configured. Cannot run the crew. Please check GROQ_API_KEY or LLM setup."
+            print(f"ERROR: {message}")
+            return {"success": False, "error": message, "message": message}
         try:
-            # 1. Normalize prompt
-            prompt_tool = self.PromptEnrichmentAgent().tools[0]
-            prompt_result = prompt_tool._run(session_id, question, image_id)
-            prompt_data = json.loads(prompt_result) if isinstance(prompt_result, str) else prompt_result
-            if not prompt_data.get("success"):
-                return json.dumps({"success": False, "answer": None, "error": prompt_data.get("error", "Prompt normalization failed.")})
-            normalized_query = prompt_data.get("normalized_query", question)
-            resolved_image_ids = prompt_data.get("resolved_image_ids", [image_id])
-
-            # 2. Use Groq LLM to classify intent(s)
-            llm_prompt = (
-                "You are an intent classifier for an image metadata assistant. "
-                "Given the user question: '" + normalized_query + "', "
-                "return a JSON list of which of these actions should be taken: "
-                "['compare', 'geocode', 'place', 'weather', 'stats']. "
-                "Only include actions that are relevant."
-            )
-            llm_response = self.llm(llm_prompt)
-            try:
-                # Try to extract the list from the LLM response
-                import re
-                import ast
-                match = re.search(r'\[(.*?)\]', llm_response, re.DOTALL)
-                if match:
-                    actions = ast.literal_eval('[' + match.group(1) + ']')
-                    actions = [a.strip().strip('"\'') for a in actions]
-                else:
-                    actions = []
-            except Exception:
-                actions = []
-            context = {
-                "normalized_query": normalized_query,
-                "resolved_image_ids": resolved_image_ids,
-                "session_id": session_id,
-                "image_id": image_id,
-                "question": question,
-                "llm_intents": actions
-            }
-            # 3. Run only the agents/tools matching the LLM-detected intents
-            if "compare" in actions:
-                comparison_tool = self.ComparisonAgent().tools[0]
-                comparison_result = comparison_tool._run(session_id, resolved_image_ids)
-                context["comparison"] = json.loads(comparison_result) if isinstance(comparison_result, str) else comparison_result
-            if "geocode" in actions:
-                geocode_tool = self.ReverseGeocodingAgent().tools[0]
-                geocode_result = geocode_tool._run(session_id, resolved_image_ids)
-                context["geocode"] = json.loads(geocode_result) if isinstance(geocode_result, str) else geocode_result
-            if "place" in actions:
-                place_tool = self.NamedPlaceEnrichmentAgent().tools[0]
-                place_result = place_tool._run(session_id, resolved_image_ids)
-                context["place"] = json.loads(place_result) if isinstance(place_result, str) else place_result
-            if "weather" in actions:
-                weather_tool = self.WeatherDataAgent().tools[0]
-                weather_result = weather_tool._run(session_id, resolved_image_ids)
-                context["weather"] = json.loads(weather_result) if isinstance(weather_result, str) else weather_result
-            if "stats" in actions:
-                filter_tool = self.FilterAndStatsAgent().tools[0]
-                filter_result = filter_tool._run(session_id, resolved_image_ids)
-                context["filter"] = json.loads(filter_result) if isinstance(filter_result, str) else filter_result
-
-            # 4. Fallback: If no actions detected, use FallBackAgent
-            if not actions:
-                fallback_agent = self.FallBackAgent()
-                fallback_task = self.handle_fallback()
-                fallback_context = {
-                    "normalized_query": normalized_query,
-                    "session_id": session_id,
-                    "image_id": image_id,
-                    "question": question
-                }
-                fallback_result = fallback_agent.run(fallback_task, context=fallback_context)
-                fallback_data = json.loads(fallback_result) if isinstance(fallback_result, str) else fallback_result
-                if not fallback_data.get("success"):
-                    return json.dumps({"success": False, "answer": None, "error": fallback_data.get("error", "Fallback failed.")})
-                return json.dumps({
-                    "success": True,
-                    "answer": fallback_data.get("fallback_message"),
-                    "error": None
-                })
-
-            # 5. Assemble final response using OrchestrationManager
-            orchestration_agent = self.OrchestrationManager()
-            assemble_task = self.assemble_response()
-            final_result = orchestration_agent.run(
-                assemble_task,
-                context=context
-            )
-            final_data = json.loads(final_result) if isinstance(final_result, str) else final_result
-            if not final_data.get("success"):
-                return json.dumps({"success": False, "answer": None, "error": final_data.get("error", "Orchestration failed.")})
-            return json.dumps({
-                "success": True,
-                "answer": final_data.get("final_response"),
-                "error": None
-            })
+            result = self.analysis_crew().kickoff(inputs=inputs)
+            return result
+            
         except Exception as e:
-            return json.dumps({"success": False, "answer": None, "error": str(e)})
+            print(f"Error during crew execution: {e}")
+            import traceback
+            traceback.print_exc()
+            # Consider a more structured error response or re-raising for the caller to handle.
+            return {"success": False, "error": str(e), "message": "An error occurred during crew execution."}
+
+    # --- Placeholder methods for train/replay if you had them ---
+    # def train(self): 
+    #     print("Training not implemented for this crew.")
+
+    # def replay(self):
+    #     print("Replay not implemented for this crew.")
