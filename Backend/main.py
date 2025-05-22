@@ -4,6 +4,7 @@ Main FastAPI server for the Image Metadata Conversational Assistant backend.
 Provides WebSocket-based communication with frontend and basic health check.
 All image handling and metadata operations are handled via WebSocket events.
 """
+from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse, FileResponse
@@ -80,7 +81,7 @@ app = socketio.ASGIApp(sio, app)
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(
-        "app.main:app",
+        "main:app",
         host="0.0.0.0",
         port=8000,
         reload=True
@@ -91,7 +92,7 @@ def run():
     """Entry point for starting the server"""
     import uvicorn
     uvicorn.run(
-        "app.main:app",
+        "main:app",
         host="0.0.0.0",
         port=8000,
         reload=True

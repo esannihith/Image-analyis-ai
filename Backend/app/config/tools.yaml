@@ -74,12 +74,6 @@ ResponseTools:
       keywords_for_chart: ["compare", "trend", "distribution", "value", "amount", "count", "percentage", "iso", "aperture", "shutter_speed", "focal_length", "measurement", "statistic", "parameter", "setting"]
 
 ErrorTools:
-  ErrorClassifier:
-    description: "Categorizes system errors and suggests potential causes or affected components based on error messages."
-    config:
-      severity_levels: ["critical", "error", "warning", "info"]
-      default_severity: "error"
-      # notification_channels: ["logs"] # Simplified
   SuggestionGenerator:
     description: "Provides alternative actions, queries, or troubleshooting steps when an operation fails or a query cannot be directly answered."
     config:

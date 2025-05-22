@@ -22,7 +22,6 @@ from .matrix_comparator import MatrixComparatorTool
 from .visualization_creator import VisualizationCreatorTool 
 
 # Control Agent Tools
-from .error_classifier import ErrorClassifierTool
 from .suggestion_generator import SuggestionGeneratorTool
 
 # Environmental Tools
@@ -49,7 +48,6 @@ __all__ = [
     # Response
     "VisualizationCreatorTool",
     # Error/Control
-    "ErrorClassifierTool",
     "SuggestionGeneratorTool",
     # Temporal
     "DateTimeCalculatorTool",

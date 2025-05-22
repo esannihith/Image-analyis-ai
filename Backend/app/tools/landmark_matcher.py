@@ -24,7 +24,7 @@ class LandmarkMatcherInput(BaseModel):
 # ------------------------------
 # LandmarkMatcher Tool Class
 # ------------------------------
-class LandmarkMatcher(BaseTool):
+class LandmarkMatcherTool(BaseTool):
     name: str = "Landmark Matcher"
     description: str = "Identifies nearby well-known landmarks within a certain radius, returning JSON data."
     args_schema: Type[BaseModel] = LandmarkMatcherInput

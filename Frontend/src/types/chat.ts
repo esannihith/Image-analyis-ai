@@ -7,6 +7,8 @@ export interface MessageType {
     id: string;
     url: string;
   };
+  isError?: boolean;
+  isServiceStatus?: boolean;
 }
 
 export interface ImageType {

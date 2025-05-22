@@ -2,10 +2,11 @@ import yaml
 from pathlib import Path
 import os
 import json
-from typing import Type, List, Tuple, Dict, Any
-from pydantic import BaseModel, Field
+from typing import Type, List, Tuple, Dict, Any, Optional, Union, ClassVar
+from pydantic import BaseModel, Field, field_validator
 from crewai.tools import BaseTool
 from geopy.distance import geodesic
+import traceback
 
 # Load configuration from tools.yaml or environment variables
 try:
@@ -26,7 +27,7 @@ class DistanceCalculatorInput(BaseModel):
 # ------------------------------
 # DistanceCalculator Tool Class
 # ------------------------------
-class DistanceCalculator(BaseTool):
+class DistanceCalculatorTool(BaseTool):
     name: str = "Distance Calculator"
     description: str = "Calculates distance between multiple image coordinates using Haversine/geodesic formula."
     args_schema: Type[BaseModel] = DistanceCalculatorInput
